@@ -19,6 +19,15 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.List;
+import java.util.ArrayList;
+
+import org.tensorflow.lite.Interpreter;
+import org.tensorflow.lite.flex.FlexDelegate;
+import java.io.IOException;
+import java.io.FileInputStream;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import android.content.res.AssetFileDescriptor;
 
 import static android.os.Environment.DIRECTORY_DOWNLOADS;
 
@@ -28,6 +37,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private String fileName;
     private byte[] data;
     private boolean isRhythm24;
+    private Interpreter tfliteInterpreter;
 
     public ScoscheSDK24 getSdk() {
         return sdk;
@@ -43,6 +53,14 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         checkPermissions();
 
         sdk = new ScoscheSDK24(this);
+
+        try {
+            tfliteInterpreter = new Interpreter(loadModelFile(), getTfliteOptions());
+            Log.d("TFLITE", "Model basariyla yuklendi");
+        } catch (Exception e) {
+            Log.e("TFLITE", "Model yuklenemedi: " + e.getMessage());
+        }
+
         Log.d("MainActivity", "onCreate: SDK başlatıldı");
 
         Fragment fragment = null;
@@ -122,14 +140,47 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         }
     }
 
+    // Rhythm24'ten gelen BPM verilerini biriktiren tampon.
+    // Her eleman [timestamp (ms), bpmDegeri] formatinda bir dizi.
+    // Yeterli veri birikince TFLite modeline beslenecek.
+    private ArrayList<long[]> bpmBuffer = new ArrayList<>();
+
     @Override
     public void updateHeartRate(String heartRate) {
+
+        // SDK'dan gelen BPM String'ini sayiya cevir
+        int bpmValue = Integer.parseInt(heartRate);
+
+        // Verinin hangi anda geldigini kaydet
+        // ML modeli icin zamansal desen onemli
+        long timestamp = System.currentTimeMillis();
+
+        // [timestamp, bpm] cifti olarak tampona ekle
+        bpmBuffer.add(new long[]{timestamp, bpmValue});
+
+        // Tampon 20 saniye doldu mu kontrol et
+        if (bpmBuffer.size() >= 2) {
+            long firstTimestamp = bpmBuffer.get(0)[0];
+            long lastTimestamp = bpmBuffer.get(bpmBuffer.size() - 1)[0];
+            long elapsed = lastTimestamp - firstTimestamp;
+
+            if (elapsed >= 20000) { // 20 saniye = 20000 milisaniye
+                Log.d("BPM_WINDOW", "20 saniyelik pencere tamamlandi. Veri sayisi: " + bpmBuffer.size());
+                // TODO: buraya TFLite modeline veri gonderme kodu gelecek
+                bpmBuffer.clear(); // tamponu temizle, yeni pencere baslat
+            }
+        }
+
+        // Logcat'te veri akisini dogrula — cihaz baglandiginda buradan test ederiz
+        Log.d("BPM_BUFFER", timestamp + " -> " + bpmValue + " BPM | Tampon: " + bpmBuffer.size());
+
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 FragmentManager fragmentManager = getSupportFragmentManager();
                 Fragment f = fragmentManager.findFragmentByTag("Rhythm24Fragment");
                 if (f != null) {
+                    // Ekranda BPM gosterimini guncelle
                     ((Rhythm24Fragment) f).updateHeartRate(heartRate);
                 }
             }
@@ -310,5 +361,18 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             Log.d("MainActivity", "onRequestPermissionsResult: İzin verilmedi");
         }
     }
+    private MappedByteBuffer loadModelFile() throws IOException {
+        AssetFileDescriptor fileDescriptor = getAssets().openFd("ppg_biometric_embedding.tflite");
+        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
+        FileChannel fileChannel = inputStream.getChannel();
+        long startOffset = fileDescriptor.getStartOffset();
+        long declaredLength = fileDescriptor.getDeclaredLength();
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
+    }
 
+    private Interpreter.Options getTfliteOptions() {
+        Interpreter.Options options = new Interpreter.Options();
+        options.addDelegate(new FlexDelegate());
+        return options;
+    }
 }
