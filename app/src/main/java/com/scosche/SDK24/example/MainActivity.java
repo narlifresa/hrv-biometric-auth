@@ -1,26 +1,28 @@
 package com.scosche.SDK24.example;
-import android.os.Build;
 
+import android.os.Build;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
-
 import com.scosche.sdk24.example.R;
 import com.scosche.sdk24.*;
-
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.os.Environment;
 import android.util.Log;
 import android.widget.Toast;
-
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
+import android.bluetooth.BluetoothProfile;
+import java.util.UUID;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.List;
 import java.util.ArrayList;
-
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.flex.FlexDelegate;
 import java.io.IOException;
@@ -29,8 +31,6 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import android.content.res.AssetFileDescriptor;
 
-import static android.os.Environment.DIRECTORY_DOWNLOADS;
-
 public class MainActivity extends AppCompatActivity implements RhythmSDKScanningCallback, RhythmSDKDeviceCallback, RhythmSDKFitFileCallback, ScannedDeviceFragment.OnListFragmentInteractionListener {
 
     private ScoscheSDK24 sdk;
@@ -38,6 +38,13 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private byte[] data;
     private boolean isRhythm24;
     private Interpreter tfliteInterpreter;
+    private BluetoothGatt bleGatt;
+    private static final UUID HR_SERVICE_UUID     = UUID.fromString("0000180D-0000-1000-8000-00805f9b34fb");
+    private static final UUID HR_MEASUREMENT_UUID = UUID.fromString("00002A37-0000-1000-8000-00805f9b34fb");
+    private static final UUID CLIENT_CONFIG_UUID  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+    private ArrayList<long[]> bpmBuffer = new ArrayList<>();
+    private ArrayList<Double> rrBuffer = new ArrayList<>();
+
 
     public ScoscheSDK24 getSdk() {
         return sdk;
@@ -47,54 +54,36 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(com.scosche.sdk24.example.R.layout.activity_main);
-
-        Log.d("MainActivity", "onCreate: Başlatıldı");
-
+        Log.d("MainActivity", "onCreate: Baslatildi");
         checkPermissions();
-
         sdk = new ScoscheSDK24(this);
-
         try {
             tfliteInterpreter = new Interpreter(loadModelFile(), getTfliteOptions());
             Log.d("TFLITE", "Model basariyla yuklendi");
         } catch (Exception e) {
             Log.e("TFLITE", "Model yuklenemedi: " + e.getMessage());
         }
-
-        Log.d("MainActivity", "onCreate: SDK başlatıldı");
-
-        Fragment fragment = null;
+        Log.d("MainActivity", "onCreate: SDK baslatildi");
         try {
-            fragment = ScannedDeviceFragment.class.newInstance();
+            Fragment fragment = ScannedDeviceFragment.class.newInstance();
             getSupportFragmentManager().beginTransaction().replace(com.scosche.sdk24.example.R.id.flContent, fragment, "ScannedDeviceFragment").commit();
-            Log.d("MainActivity", "onCreate: ScannedDeviceFragment yüklendi");
+            Log.d("MainActivity", "onCreate: ScannedDeviceFragment yuklendi");
         } catch (Exception e) {
             e.printStackTrace();
         }
-
         sdk.startScan(this);
     }
 
     private void checkPermissions() {
-        // Konum izinlerini kontrol et
-        Log.d("MainActivity", "checkPermissions: İzinler kontrol ediliyor");
-
+        Log.d("MainActivity", "checkPermissions: Izinler kontrol ediliyor");
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Log.d("MainActivity", "checkPermissions: Konum izni verilmedi");
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1);
-        } else {
-            Log.d("MainActivity", "checkPermissions: Konum izni mevcut");
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
                     ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-
-                Log.d("MainActivity", "checkPermissions: Bluetooth izinleri verilmedi");
                 ActivityCompat.requestPermissions(this,
                         new String[]{Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT}, 2);
-            } else {
-                Log.d("MainActivity", "checkPermissions: Bluetooth izinleri mevcut");
             }
         }
     }
@@ -102,28 +91,32 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     @Override
     public void deviceFound(RhythmDevice device) {
         Log.d("MainActivity", "deviceFound: Cihaz bulundu: " + device.getName());
-
         FragmentManager fragmentManager = getSupportFragmentManager();
         Fragment f = fragmentManager.findFragmentByTag("ScannedDeviceFragment");
-
         if (f != null && device.getName() != null) {
             ((ScannedDeviceFragment) f).handleBluetoothDevice(device);
-            Log.d("MainActivity", "deviceFound: Cihaz ScannedDeviceFragment'e eklendi");
-        } else {
-            Log.d("MainActivity", "deviceFound: Cihaz adı null veya fragment bulunamadı");
         }
     }
 
     @Override
     public void deviceConnected(RhythmDevice rhythmDevice) {
-
-        //forward to appropriate screen
         try {
             switch (rhythmDevice.deviceModel) {
                 case RHYTHM_24:
                     Fragment rhythm24Fragment = Rhythm24Fragment.class.newInstance();
                     getSupportFragmentManager().beginTransaction().replace(com.scosche.sdk24.example.R.id.flContent, rhythm24Fragment, "Rhythm24Fragment").commit();
                     isRhythm24 = true;
+                    sdk.updateSportMode(255);
+                    Log.d("HRV", "HRV modu aktif edildi");
+                    try {
+                        java.lang.reflect.Field deviceField = rhythmDevice.getClass().getDeclaredField("device");
+                        deviceField.setAccessible(true);
+                        android.bluetooth.BluetoothDevice btDevice = (android.bluetooth.BluetoothDevice) deviceField.get(rhythmDevice);
+                        Log.d("MAC", "Cihaz MAC: " + btDevice.getAddress());
+                        connectNativeBle(btDevice);
+                    } catch (Exception ex) {
+                        Log.e("MAC", "MAC alinamadi: " + ex.getMessage());
+                    }
                     break;
                 case RHYTHM_E:
                 case RHYTHM_19:
@@ -140,47 +133,24 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         }
     }
 
-    // Rhythm24'ten gelen BPM verilerini biriktiren tampon.
-    // Her eleman [timestamp (ms), bpmDegeri] formatinda bir dizi.
-    // Yeterli veri birikince TFLite modeline beslenecek.
-    private ArrayList<long[]> bpmBuffer = new ArrayList<>();
-
     @Override
     public void updateHeartRate(String heartRate) {
-
-        // SDK'dan gelen BPM String'ini sayiya cevir
         int bpmValue = Integer.parseInt(heartRate);
-
-        // Verinin hangi anda geldigini kaydet
-        // ML modeli icin zamansal desen onemli
         long timestamp = System.currentTimeMillis();
-
-        // [timestamp, bpm] cifti olarak tampona ekle
         bpmBuffer.add(new long[]{timestamp, bpmValue});
-
-        // Tampon 20 saniye doldu mu kontrol et
         if (bpmBuffer.size() >= 2) {
-            long firstTimestamp = bpmBuffer.get(0)[0];
-            long lastTimestamp = bpmBuffer.get(bpmBuffer.size() - 1)[0];
-            long elapsed = lastTimestamp - firstTimestamp;
-
-            if (elapsed >= 20000) { // 20 saniye = 20000 milisaniye
+            long elapsed = bpmBuffer.get(bpmBuffer.size() - 1)[0] - bpmBuffer.get(0)[0];
+            if (elapsed >= 20000) {
                 Log.d("BPM_WINDOW", "20 saniyelik pencere tamamlandi. Veri sayisi: " + bpmBuffer.size());
-                // TODO: buraya TFLite modeline veri gonderme kodu gelecek
-                bpmBuffer.clear(); // tamponu temizle, yeni pencere baslat
+                bpmBuffer.clear();
             }
         }
-
-        // Logcat'te veri akisini dogrula — cihaz baglandiginda buradan test ederiz
         Log.d("BPM_BUFFER", timestamp + " -> " + bpmValue + " BPM | Tampon: " + bpmBuffer.size());
-
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                FragmentManager fragmentManager = getSupportFragmentManager();
-                Fragment f = fragmentManager.findFragmentByTag("Rhythm24Fragment");
+                Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
                 if (f != null) {
-                    // Ekranda BPM gosterimini guncelle
                     ((Rhythm24Fragment) f).updateHeartRate(heartRate);
                 }
             }
@@ -189,22 +159,15 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
     @Override
     public void monitorStateInvalid() {
-
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                FragmentManager fragmentManager = getSupportFragmentManager();
-                //TODO: create method to get active fragment
                 if (isRhythm24) {
-                    Fragment f = fragmentManager.findFragmentByTag("Rhythm24Fragment");
-                    if (f != null) {
-                        ((Rhythm24Fragment) f).updateHeartRate("???");
-                    }
+                    Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
+                    if (f != null) ((Rhythm24Fragment) f).updateHeartRate("???");
                 } else {
-                    Fragment f = fragmentManager.findFragmentByTag("RhythmPlusFragment");
-                    if (f != null) {
-                        ((RhythmPlusFragment) f).updateHeartRate("???");
-                    }
+                    Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
+                    if (f != null) ((RhythmPlusFragment) f).updateHeartRate("???");
                 }
             }
         });
@@ -215,39 +178,27 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-
-                FragmentManager fragmentManager = getSupportFragmentManager();
                 if (isRhythm24) {
-                    Fragment f = fragmentManager.findFragmentByTag("Rhythm24Fragment");
-                    if (f != null) {
-                        ((Rhythm24Fragment) f).updateBattery(batteryLevel);
-                    }
+                    Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
+                    if (f != null) ((Rhythm24Fragment) f).updateBattery(batteryLevel);
                 } else {
-                    Fragment f = fragmentManager.findFragmentByTag("RhythmPlusFragment");
-                    if (f != null) {
-                        ((RhythmPlusFragment) f).updateBattery(batteryLevel);
-                    }
+                    Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
+                    if (f != null) ((RhythmPlusFragment) f).updateBattery(batteryLevel);
                 }
             }
         });
     }
 
     @Override
-    public void updateZone(int zone) {
-
-    }
+    public void updateZone(int zone) {}
 
     @Override
     public void updateSportMode(int sportMode) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-
-                FragmentManager fragmentManager = getSupportFragmentManager();
-                Fragment f = fragmentManager.findFragmentByTag("Rhythm24Fragment");
-                if (f != null) {
-                    ((Rhythm24Fragment) f).updateSportMode(sportMode);
-                }
+                Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
+                if (f != null) ((Rhythm24Fragment) f).updateSportMode(sportMode);
             }
         });
     }
@@ -257,12 +208,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-
-                FragmentManager fragmentManager = getSupportFragmentManager();
-                Fragment f = fragmentManager.findFragmentByTag("RhythmPlusFragment");
-                if (f != null) {
-                    ((RhythmPlusFragment) f).updateFirmwareVersion(value);
-                }
+                Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
+                if (f != null) ((RhythmPlusFragment) f).updateFirmwareVersion(value);
             }
         });
     }
@@ -270,45 +217,30 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     @Override
     public void error(ErrorType errorType) {
         Toast.makeText(this, "Error scanning: " + errorType, Toast.LENGTH_LONG).show();
-
-        if (errorType == ErrorType.NO_LOCATION_PERMISSION) {
-//            ActivityCompat.requestPermissions((Activity) getApplicationContext(), new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1);
-        }
     }
 
     @Override
     public void deviceLost(RhythmDevice device) {
-
-        FragmentManager fragmentManager = getSupportFragmentManager();
-        Fragment f = fragmentManager.findFragmentByTag("ScannedDeviceFragment");
-        if (f != null) {
-            ((ScannedDeviceFragment) f).removeDevice(device);
-        }
+        Fragment f = getSupportFragmentManager().findFragmentByTag("ScannedDeviceFragment");
+        if (f != null) ((ScannedDeviceFragment) f).removeDevice(device);
     }
 
     @Override
     public void fitFilesFound(List<FitFileContent.FitFileInfo> files) {
-        FragmentManager fragmentManager = getSupportFragmentManager();
-        Fragment f = fragmentManager.findFragmentByTag("FitFilesFragment");
-
-        if (f != null) {
-            ((FitFilesFragment) f).displayFitFiles(files);
-        }
+        Fragment f = getSupportFragmentManager().findFragmentByTag("FitFilesFragment");
+        if (f != null) ((FitFilesFragment) f).displayFitFiles(files);
     }
 
     @Override
     public void fitFileDownloadComplete(byte[] data, String fileName) {
-
         this.fileName = fileName;
         this.data = data;
-        ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE},
-                23);
+        saveFile();
     }
 
     @Override
     public void fitFileDeleteComplete(String fileName) {
         getSdk().clearFiles();
-
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -323,56 +255,106 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                FragmentManager fragmentManager = getSupportFragmentManager();
-                Fragment f = fragmentManager.findFragmentByTag("FitFilesFragment");
-
-                if (f != null) {
-                    ((FitFilesFragment) f).getAdapter().test(percent);
-                }
+                Fragment f = getSupportFragmentManager().findFragmentByTag("FitFilesFragment");
+                if (f != null) ((FitFilesFragment) f).getAdapter().test(percent);
             }
         });
     }
 
     private void saveFile() {
-        File directory =
-                Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS);
-
-        String filePath = directory + "/" + fileName;
-        FileOutputStream outputStream;
-
+        String filePath = getFilesDir() + "/" + fileName;
         try {
-            outputStream = new FileOutputStream(filePath);
+            FileOutputStream outputStream = new FileOutputStream(filePath);
             outputStream.write(data);
             outputStream.close();
+            Log.d("FIT_FILE", "Dosya kaydedildi: " + filePath);
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e("FIT_FILE", "Kayit hatasi: " + e.getMessage());
         }
-
         Toast.makeText(getApplicationContext(), "File downloaded: " + fileName, Toast.LENGTH_LONG).show();
-
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
         if (requestCode == 23 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             saveFile();
-            Log.d("MainActivity", "onRequestPermissionsResult: İzin verildi, dosya kaydedildi");
-        } else {
-            Log.d("MainActivity", "onRequestPermissionsResult: İzin verilmedi");
         }
     }
+
     private MappedByteBuffer loadModelFile() throws IOException {
         AssetFileDescriptor fileDescriptor = getAssets().openFd("ppg_biometric_embedding.tflite");
         FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
         FileChannel fileChannel = inputStream.getChannel();
-        long startOffset = fileDescriptor.getStartOffset();
-        long declaredLength = fileDescriptor.getDeclaredLength();
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, fileDescriptor.getStartOffset(), fileDescriptor.getDeclaredLength());
     }
 
     private Interpreter.Options getTfliteOptions() {
         Interpreter.Options options = new Interpreter.Options();
         options.addDelegate(new FlexDelegate());
         return options;
+    }
+
+    private void connectNativeBle(android.bluetooth.BluetoothDevice btDevice) {
+        bleGatt = btDevice.connectGatt(this, false, gattCallback);
+    }
+
+    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
+        @Override
+        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                Log.d("BLE", "Native baglandi, servisler kesfediliyor...");
+                gatt.discoverServices();
+            }
+        }
+
+        @Override
+        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            BluetoothGattService hrService = gatt.getService(HR_SERVICE_UUID);
+            if (hrService == null) { Log.e("BLE", "HR Service bulunamadi"); return; }
+            BluetoothGattCharacteristic hrChar = hrService.getCharacteristic(HR_MEASUREMENT_UUID);
+            if (hrChar == null) { Log.e("BLE", "0x2A37 bulunamadi"); return; }
+            gatt.setCharacteristicNotification(hrChar, true);
+            BluetoothGattDescriptor descriptor = hrChar.getDescriptor(CLIENT_CONFIG_UUID);
+            if (descriptor != null) {
+                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                gatt.writeDescriptor(descriptor);
+            }
+            Log.d("BLE", "0x2A37 notification aktif");
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+            if (!HR_MEASUREMENT_UUID.equals(characteristic.getUuid())) return;
+            parseHrMeasurement(characteristic.getValue());
+        }
+    };
+
+    private void parseHrMeasurement(byte[] data) {
+        if (data == null || data.length < 2) return;
+        int flags = data[0] & 0xFF;
+        boolean isUint16  = (flags & 0x01) != 0;
+        boolean hasEnergy = (flags & 0x08) != 0;
+        boolean hasRR     = (flags & 0x10) != 0;
+        int offset = 1;
+        int heartRate;
+        if (isUint16) {
+            heartRate = (data[offset] & 0xFF) | ((data[offset + 1] & 0xFF) << 8);
+            offset += 2;
+        } else {
+            heartRate = data[offset] & 0xFF;
+            offset += 1;
+        }
+        if (hasEnergy) offset += 2;
+        if (hasRR) {
+            while (offset + 1 < data.length) {
+                int rrRaw = (data[offset] & 0xFF) | ((data[offset + 1] & 0xFF) << 8);
+                offset += 2;
+                double rrMs = (rrRaw / 1024.0) * 1000.0;
+                Log.d("RR", "RR Interval: " + rrMs + " ms | HR: " + heartRate);
+                rrBuffer.add(rrMs);
+                Log.d("RR_BUFFER", "RR tampon boyutu: " + rrBuffer.size());            }
+        } else {
+            Log.w("BLE", "RR interval yok (flags=" + flags + ")");
+        }
     }
 }
