@@ -1,9 +1,8 @@
 package com.scosche.SDK24.example;
 
 import android.os.Bundle;
-
-import androidx.fragment.app.Fragment;
-
+import android.os.Handler;
+import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -14,8 +13,17 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.scosche.sdk24.example.R;
+import androidx.fragment.app.Fragment;
+
 import com.scosche.sdk24.Zone;
+import com.scosche.sdk24.example.R;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public class Rhythm24Fragment extends Fragment {
 
@@ -30,30 +38,31 @@ public class Rhythm24Fragment extends Fragment {
             this.name = name;
             this.id = id;
         }
- 
+
         public static SportMode fromId(int id) {
             for (SportMode s : SportMode.values()) {
-                if (s.id == id) {
-                    return s;
-                }
+                if (s.id == id) return s;
             }
             return HEART_RATE_ONLY;
         }
 
         @Override
-        public String toString() {
-            return name;
-        }
+        public String toString() { return name; }
     }
 
-    private TextView heartRateField, batteryField;
-    private EditText zoneOneTwoBPM, zoneTwoThreeBPM, zoneThreeFourBPM, zoneFourFiveBPM;
+    private TextView heartRateField, batteryField, recordingStatusField;
+    private EditText zoneOneTwoBPM, zoneTwoThreeBPM, zoneThreeFourBPM, zoneFourFiveBPM, userNameField;
     private Button readZonesButton, updateZonesButton, readSportModeButton, updateSportModeButton, viewFitFilesButton;
+    private Button startRecordingButton, stopRecordingButton;
     private Spinner sportModeSpinner;
 
-    public Rhythm24Fragment() {
-        // Required empty public constructor
-    }
+    private boolean isRecording = false;
+    private long sessionStartTime = 0;
+    private FileWriter csvWriter;
+    private Handler timerHandler = new Handler(Looper.getMainLooper());
+    private Runnable timerRunnable;
+
+    public Rhythm24Fragment() {}
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -61,15 +70,16 @@ public class Rhythm24Fragment extends Fragment {
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                             Bundle savedInstanceState) {
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_rhythm24, container, false);
 
         heartRateField = view.findViewById(R.id.heartRateField);
         batteryField = view.findViewById(R.id.batteryLevelField);
+        recordingStatusField = view.findViewById(R.id.recordingStatusField);
+        userNameField = view.findViewById(R.id.userNameField);
 
         sportModeSpinner = view.findViewById(R.id.sportModeSpinner);
-        sportModeSpinner.setAdapter(new ArrayAdapter<SportMode>(getContext(), android.R.layout.simple_spinner_item, SportMode.values()));
+        sportModeSpinner.setAdapter(new ArrayAdapter<>(getContext(), android.R.layout.simple_spinner_item, SportMode.values()));
         sportModeSpinner.setSelection(0);
 
         zoneOneTwoBPM = view.findViewById(R.id.zoneOneTwoBPM);
@@ -78,96 +88,146 @@ public class Rhythm24Fragment extends Fragment {
         zoneFourFiveBPM = view.findViewById(R.id.zoneFourFiveBPM);
 
         readZonesButton = view.findViewById(R.id.readZonesButton);
-        readZonesButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Zone zone = ((MainActivity) getActivity()).getSdk().getZoneValues();
-                if (zone != null) {
-                    zoneOneTwoBPM.setText(String.valueOf(zone.getZoneOneTwo()));
-                    zoneTwoThreeBPM.setText(String.valueOf(zone.getZoneTwoThree()));
-                    zoneThreeFourBPM.setText(String.valueOf(zone.getZoneThreeFour()));
-                    zoneFourFiveBPM.setText(String.valueOf(zone.getZoneFourFive()));
-                }
+        readZonesButton.setOnClickListener(v -> {
+            Zone zone = ((MainActivity) getActivity()).getSdk().getZoneValues();
+            if (zone != null) {
+                zoneOneTwoBPM.setText(String.valueOf(zone.getZoneOneTwo()));
+                zoneTwoThreeBPM.setText(String.valueOf(zone.getZoneTwoThree()));
+                zoneThreeFourBPM.setText(String.valueOf(zone.getZoneThreeFour()));
+                zoneFourFiveBPM.setText(String.valueOf(zone.getZoneFourFive()));
             }
         });
 
         updateZonesButton = view.findViewById(R.id.updateZonesButton);
-        updateZonesButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                String zoneOneTwo = zoneOneTwoBPM.getText().toString();
-                String zoneTwoThree = zoneTwoThreeBPM.getText().toString();
-                String zoneThreeFour = zoneThreeFourBPM.getText().toString();
-                String zoneFourFive = zoneFourFiveBPM.getText().toString();
-
-                if ("".equals(zoneOneTwo) || "".equals(zoneTwoThree) || "".equals(zoneThreeFour) || "".equals(zoneFourFive)) {
-                    Toast.makeText(getContext(), "Please enter all zone values.", Toast.LENGTH_LONG).show();
+        updateZonesButton.setOnClickListener(v -> {
+            String zoneOneTwo = zoneOneTwoBPM.getText().toString();
+            String zoneTwoThree = zoneTwoThreeBPM.getText().toString();
+            String zoneThreeFour = zoneThreeFourBPM.getText().toString();
+            String zoneFourFive = zoneFourFiveBPM.getText().toString();
+            if ("".equals(zoneOneTwo) || "".equals(zoneTwoThree) || "".equals(zoneThreeFour) || "".equals(zoneFourFive)) {
+                Toast.makeText(getContext(), "Please enter all zone values.", Toast.LENGTH_LONG).show();
+            } else {
+                short z1 = Short.parseShort(zoneOneTwo), z2 = Short.parseShort(zoneTwoThree);
+                short z3 = Short.parseShort(zoneThreeFour), z4 = Short.parseShort(zoneFourFive);
+                if (z1 > 250 || z2 > 250 || z3 > 250 || z4 > 250) {
+                    Toast.makeText(getContext(), "Please enter valid zone numbers.", Toast.LENGTH_LONG).show();
+                } else if (z1 > z2 || z2 > z3 || z3 > z4) {
+                    Toast.makeText(getContext(), "Zones must be in order.", Toast.LENGTH_LONG).show();
                 } else {
-                    short zoneOneTwoShort = Short.parseShort(zoneOneTwo);
-                    short zoneTwoThreeShort = Short.parseShort(zoneTwoThree);
-                    short zoneThreeFourShort = Short.parseShort(zoneThreeFour);
-                    short zoneFourFiveShort = Short.parseShort(zoneFourFive);
-
-                    if (zoneOneTwoShort > 250 || zoneTwoThreeShort > 250 || zoneThreeFourShort > 250 || zoneFourFiveShort > 250) {
-                        Toast.makeText(getContext(), "Please enter valid zone numbers.", Toast.LENGTH_LONG).show();
-                    } else if (zoneOneTwoShort > zoneTwoThreeShort || zoneTwoThreeShort > zoneThreeFourShort || zoneThreeFourShort > zoneFourFiveShort) {
-                        Toast.makeText(getContext(), "Zones must be in order.", Toast.LENGTH_LONG).show();
-                    } else {
-                        Zone zone = new Zone(Short.parseShort(zoneOneTwo), Short.parseShort(zoneTwoThree), Short.parseShort(zoneThreeFour), Short.parseShort(zoneFourFive));
-                        ((MainActivity) getActivity()).getSdk().updateZoneValues(zone);
-                    }
+                    ((MainActivity) getActivity()).getSdk().updateZoneValues(new Zone(z1, z2, z3, z4));
                 }
             }
         });
 
         readSportModeButton = view.findViewById(R.id.readSportModeButton);
-        readSportModeButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                int sportMode = ((MainActivity) getActivity()).getSdk().getSportMode();
-                SportMode sportModeEnum = SportMode.fromId(sportMode);
-
-                for (int i = 0; i < sportModeSpinner.getCount(); i++) {
-                    if (sportModeSpinner.getItemAtPosition(i).equals(sportModeEnum)) {
-                        sportModeSpinner.setSelection(i);
-                        break;
-                    }
+        readSportModeButton.setOnClickListener(v -> {
+            int sportMode = ((MainActivity) getActivity()).getSdk().getSportMode();
+            SportMode sportModeEnum = SportMode.fromId(sportMode);
+            for (int i = 0; i < sportModeSpinner.getCount(); i++) {
+                if (sportModeSpinner.getItemAtPosition(i).equals(sportModeEnum)) {
+                    sportModeSpinner.setSelection(i);
+                    break;
                 }
             }
         });
 
         updateSportModeButton = view.findViewById(R.id.updateSportModeButton);
-        updateSportModeButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                int value = ((SportMode) sportModeSpinner.getSelectedItem()).id;
-                if (value == -1) {
-                    Toast.makeText(getContext(), "Please select a sport mode.", Toast.LENGTH_LONG).show();
-                } else {
-                    ((MainActivity) getActivity()).getSdk().updateSportMode(value);
-                }
+        updateSportModeButton.setOnClickListener(v -> {
+            int value = ((SportMode) sportModeSpinner.getSelectedItem()).id;
+            if (value == -1) {
+                Toast.makeText(getContext(), "Please select a sport mode.", Toast.LENGTH_LONG).show();
+            } else {
+                ((MainActivity) getActivity()).getSdk().updateSportMode(value);
             }
         });
 
         viewFitFilesButton = view.findViewById(R.id.viewFitFilesButton);
-        viewFitFilesButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                try {
-                    ((MainActivity) getActivity()).getSdk().getFitFiles();
-
-                    Fragment fragment = FitFilesFragment.class.newInstance();
-//                    getActivity().getSupportFragmentManager().beginTransaction().replace(R.id.flContent, fragment, "FitFilesFragment").commit();
-                    getActivity().getSupportFragmentManager().beginTransaction().replace(R.id.flContent, fragment, "FitFilesFragment").addToBackStack("FitFilesFragment").commit();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
+        viewFitFilesButton.setOnClickListener(v -> {
+            try {
+                ((MainActivity) getActivity()).getSdk().getFitFiles();
+                Fragment fragment = FitFilesFragment.class.newInstance();
+                getActivity().getSupportFragmentManager().beginTransaction()
+                        .replace(R.id.flContent, fragment, "FitFilesFragment")
+                        .addToBackStack("FitFilesFragment").commit();
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         });
 
+        // KAYIT MODU
+        startRecordingButton = view.findViewById(R.id.startRecordingButton);
+        stopRecordingButton = view.findViewById(R.id.stopRecordingButton);
+
+        startRecordingButton.setOnClickListener(v -> startRecording());
+        stopRecordingButton.setOnClickListener(v -> stopRecording());
 
         return view;
+    }
+
+    private void startRecording() {
+        String userName = userNameField.getText().toString().trim();
+        if (userName.isEmpty()) {
+            Toast.makeText(getContext(), "Lutfen kullanici adi girin.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try {
+            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+            String fileName = userName.replace(" ", "_") + "_" + timestamp + ".csv";
+            File file = new File(getActivity().getFilesDir(), fileName);
+            csvWriter = new FileWriter(file, true);
+            csvWriter.write("timestamp,bpm,rr_ms\n");
+
+            isRecording = true;
+            sessionStartTime = System.currentTimeMillis();
+            startRecordingButton.setEnabled(false);
+            stopRecordingButton.setEnabled(true);
+
+            // Sayac baslat
+            timerRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (isRecording) {
+                        long elapsed = (System.currentTimeMillis() - sessionStartTime) / 1000;
+                        String status = String.format(Locale.getDefault(),
+                                "Kayit: %02d:%02d | Dosya: %s", elapsed / 60, elapsed % 60, fileName);
+                        recordingStatusField.setText(status);
+                        timerHandler.postDelayed(this, 1000);
+                    }
+                }
+            };
+            timerHandler.post(timerRunnable);
+
+            // MainActivity'e csv writer'i bildir
+            ((MainActivity) getActivity()).setCsvWriter(csvWriter);
+
+            Toast.makeText(getContext(), "Kayit basladi: " + fileName, Toast.LENGTH_SHORT).show();
+
+        } catch (IOException e) {
+            Toast.makeText(getContext(), "Dosya olusturulamadi: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void stopRecording() {
+        isRecording = false;
+        timerHandler.removeCallbacks(timerRunnable);
+        startRecordingButton.setEnabled(true);
+        stopRecordingButton.setEnabled(false);
+
+        ((MainActivity) getActivity()).setCsvWriter(null);
+
+        try {
+            if (csvWriter != null) {
+                csvWriter.flush();
+                csvWriter.close();
+                csvWriter = null;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        recordingStatusField.setText("Kayit tamamlandi.");
+        Toast.makeText(getContext(), "Kayit durduruldu.", Toast.LENGTH_SHORT).show();
     }
 
     public void updateHeartRate(String heartRate) {
@@ -178,11 +238,7 @@ public class Rhythm24Fragment extends Fragment {
         batteryField.setText(String.valueOf(batteryLevel));
     }
 
-    public void updateZone(int zone) {
+    public void updateZone(int zone) {}
 
-    }
-
-    public void updateSportMode(int sportMode) {
-//        sportModeField.setText(String.valueOf(sportMode));
-    }
+    public void updateSportMode(int sportMode) {}
 }

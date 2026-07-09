@@ -1,9 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><!--<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"-->
-<!--    xmlns:tools="http://schemas.android.com/tools"-->
-<!--    android:layout_width="match_parent"-->
-<!--    android:layout_height="match_parent"-->
-<!--    tools:context=".Rhythm24Fragment">-->
-
+<?xml version="1.0" encoding="utf-8"?>
 <TableLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -56,7 +51,6 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:backgroundTint="@android:color/white" />
-<!--android:spinnerMode="dialog" -->
     </TableRow>
 
     <TableRow
@@ -159,7 +153,6 @@
             android:layout_marginRight="5dp"
             android:text="@string/readZoneValues_label"
             android:textAllCaps="false" />
-        <!--android:maxLines="1"-->
 
         <Button
             android:id="@+id/updateZonesButton"
@@ -179,6 +172,64 @@
             android:layout_height="wrap_content"
             android:text="@string/viewFitFiles_label"
             android:textAllCaps="false" />
-
     </TableRow>
+
+    <!-- KAYIT MODU -->
+    <TableRow
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Kullanici Adi:" />
+
+        <EditText
+            android:id="@+id/userNameField"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:hint="Ad Soyad"
+            android:inputType="textPersonName" />
+    </TableRow>
+
+    <TableRow
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp">
+
+        <Button
+            android:id="@+id/startRecordingButton"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginRight="5dp"
+            android:backgroundTint="#4CAF50"
+            android:text="Kaydi Baslat"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/stopRecordingButton"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:backgroundTint="#F44336"
+            android:enabled="false"
+            android:text="Kaydi Durdur"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF" />
+    </TableRow>
+
+    <TableRow
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:id="@+id/recordingStatusField"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_span="2"
+            android:text="Kayit bekleniyor..."
+            android:textColor="#AAAAAA" />
+    </TableRow>
+
 </TableLayout>

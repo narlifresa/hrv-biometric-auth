@@ -30,6 +30,7 @@ import java.io.FileInputStream;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import android.content.res.AssetFileDescriptor;
+import java.io.FileWriter;
 
 public class MainActivity extends AppCompatActivity implements RhythmSDKScanningCallback, RhythmSDKDeviceCallback, RhythmSDKFitFileCallback, ScannedDeviceFragment.OnListFragmentInteractionListener {
 
@@ -44,6 +45,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private static final UUID CLIENT_CONFIG_UUID  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private ArrayList<long[]> bpmBuffer = new ArrayList<>();
     private ArrayList<Double> rrBuffer = new ArrayList<>();
+    private int currentSignalQuality = 0;
+
 
 
     public ScoscheSDK24 getSdk() {
@@ -74,6 +77,15 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         sdk.startScan(this);
     }
 
+    private FileWriter csvWriter;
+
+    public void setCsvWriter(FileWriter writer) {
+        this.csvWriter = writer;
+    }
+
+    public FileWriter getCsvWriter() {
+        return csvWriter;
+    }
     private void checkPermissions() {
         Log.d("MainActivity", "checkPermissions: Izinler kontrol ediliyor");
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -138,6 +150,14 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         int bpmValue = Integer.parseInt(heartRate);
         long timestamp = System.currentTimeMillis();
         bpmBuffer.add(new long[]{timestamp, bpmValue});
+        if (csvWriter != null) {
+            try {
+                csvWriter.write(timestamp + "," + bpmValue + ",\n");
+                csvWriter.flush();
+            } catch (IOException e) {
+                Log.e("CSV", "Yazma hatasi: " + e.getMessage());
+            }
+        }
         if (bpmBuffer.size() >= 2) {
             long elapsed = bpmBuffer.get(bpmBuffer.size() - 1)[0] - bpmBuffer.get(0)[0];
             if (elapsed >= 20000) {
@@ -352,7 +372,16 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 double rrMs = (rrRaw / 1024.0) * 1000.0;
                 Log.d("RR", "RR Interval: " + rrMs + " ms | HR: " + heartRate);
                 rrBuffer.add(rrMs);
-                Log.d("RR_BUFFER", "RR tampon boyutu: " + rrBuffer.size());            }
+                Log.d("RR_BUFFER", "RR tampon boyutu: " + rrBuffer.size());
+                if (csvWriter != null) {
+                    try {
+                        csvWriter.write(System.currentTimeMillis() + ",," + rrMs + "\n");
+                        csvWriter.flush();
+                    } catch (IOException e) {
+                        Log.e("CSV", "RR yazma hatasi: " + e.getMessage());
+                    }
+                }
+            }
         } else {
             Log.w("BLE", "RR interval yok (flags=" + flags + ")");
         }
