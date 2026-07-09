@@ -46,6 +46,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private ArrayList<long[]> bpmBuffer = new ArrayList<>();
     private ArrayList<Double> rrBuffer = new ArrayList<>();
     private int currentSignalQuality = 0;
+    private double lastRrMs = 0;
 
 
 
@@ -158,7 +159,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
         if (csvWriter != null) {
             try {
-                csvWriter.write(timestamp + "," + bpmValue + ",\n");
+                csvWriter.write(timestamp + "," + bpmValue + "," + (lastRrMs > 0 ? lastRrMs : "") + "\n");
+                lastRrMs = 0;
                 csvWriter.flush();
             } catch (IOException e) {
                 Log.e("CSV", "Yazma hatasi: " + e.getMessage());
@@ -189,7 +191,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private final ArrayList<Integer> bpmHistory = new ArrayList<>();
 
     private boolean isBpmNoise(int newBpm) {
-        if (bpmHistory.size() < 3) return false;
+        if (bpmHistory.size() < 5 ) return false;
         int windowSize = Math.min(5, bpmHistory.size());
         int sum = 0;
         for (int i = bpmHistory.size() - windowSize; i < bpmHistory.size(); i++) {
@@ -380,6 +382,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         }
     };
 
+
     private void parseHrMeasurement(byte[] data) {
         if (data == null || data.length < 2) return;
         int flags = data[0] & 0xFF;
@@ -404,14 +407,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 Log.d("RR", "RR Interval: " + rrMs + " ms | HR: " + heartRate);
                 rrBuffer.add(rrMs);
                 Log.d("RR_BUFFER", "RR tampon boyutu: " + rrBuffer.size());
-                if (csvWriter != null) {
-                    try {
-                        csvWriter.write(System.currentTimeMillis() + ",," + rrMs + "\n");
-                        csvWriter.flush();
-                    } catch (IOException e) {
-                        Log.e("CSV", "RR yazma hatasi: " + e.getMessage());
-                    }
-                }
+                lastRrMs = rrMs;
             }
         } else {
             Log.w("BLE", "RR interval yok (flags=" + flags + ")");
