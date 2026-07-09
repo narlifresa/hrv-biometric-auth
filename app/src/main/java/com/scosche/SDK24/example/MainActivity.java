@@ -148,8 +148,14 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     @Override
     public void updateHeartRate(String heartRate) {
         int bpmValue = Integer.parseInt(heartRate);
+
+        if (isBpmNoise(bpmValue)) return;
+        bpmHistory.add(bpmValue);
+        if (bpmHistory.size() > 20) bpmHistory.remove(0);
+
         long timestamp = System.currentTimeMillis();
         bpmBuffer.add(new long[]{timestamp, bpmValue});
+
         if (csvWriter != null) {
             try {
                 csvWriter.write(timestamp + "," + bpmValue + ",\n");
@@ -158,6 +164,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 Log.e("CSV", "Yazma hatasi: " + e.getMessage());
             }
         }
+
         if (bpmBuffer.size() >= 2) {
             long elapsed = bpmBuffer.get(bpmBuffer.size() - 1)[0] - bpmBuffer.get(0)[0];
             if (elapsed >= 20000) {
@@ -165,7 +172,9 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 bpmBuffer.clear();
             }
         }
+
         Log.d("BPM_BUFFER", timestamp + " -> " + bpmValue + " BPM | Tampon: " + bpmBuffer.size());
+
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -175,6 +184,24 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 }
             }
         });
+    }
+
+    private final ArrayList<Integer> bpmHistory = new ArrayList<>();
+
+    private boolean isBpmNoise(int newBpm) {
+        if (bpmHistory.size() < 3) return false;
+        int windowSize = Math.min(5, bpmHistory.size());
+        int sum = 0;
+        for (int i = bpmHistory.size() - windowSize; i < bpmHistory.size(); i++) {
+            sum += bpmHistory.get(i);
+        }
+        double avg = (double) sum / windowSize;
+        double deviation = Math.abs(newBpm - avg) / avg;
+        if (deviation > 0.40) {
+            Log.w("BPM_FILTER", "Noise: " + newBpm + " BPM (ort: " + avg + ")");
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -211,6 +238,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
     @Override
     public void updateZone(int zone) {}
+
+    public void onSignalQuality(int quality) {
+        Log.d("SIGNAL", "Sinyal kalitesi: " + quality);
+    }
 
     @Override
     public void updateSportMode(int sportMode) {

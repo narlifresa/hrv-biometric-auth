@@ -3,6 +3,7 @@ package com.scosche.SDK24.example;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -201,6 +202,7 @@ public class Rhythm24Fragment extends Fragment {
             // MainActivity'e csv writer'i bildir
             ((MainActivity) getActivity()).setCsvWriter(csvWriter);
 
+            Log.d("KAYIT", "Dosya olusturuldu: " + file.getAbsolutePath());
             Toast.makeText(getContext(), "Kayit basladi: " + fileName, Toast.LENGTH_SHORT).show();
 
         } catch (IOException e) {
