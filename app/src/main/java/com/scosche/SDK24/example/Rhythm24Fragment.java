@@ -58,6 +58,7 @@ public class Rhythm24Fragment extends Fragment {
     private Spinner sportModeSpinner;
 
     private boolean isRecording = false;
+    private boolean isDeviceStabilized = false;
     private long sessionStartTime = 0;
     private FileWriter csvWriter;
     private Handler timerHandler = new Handler(Looper.getMainLooper());
@@ -155,14 +156,41 @@ public class Rhythm24Fragment extends Fragment {
             }
         });
 
-        // KAYIT MODU
         startRecordingButton = view.findViewById(R.id.startRecordingButton);
         stopRecordingButton = view.findViewById(R.id.stopRecordingButton);
 
-        startRecordingButton.setOnClickListener(v -> startRecording());
+        startRecordingButton.setEnabled(false);
+        startRecordingButton.setOnClickListener(v -> {
+            if (!isDeviceStabilized) {
+                Toast.makeText(getContext(), "Cihaz stabilize olmadi, lutfen bekleyin.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            startRecording();
+        });
         stopRecordingButton.setOnClickListener(v -> stopRecording());
 
         return view;
+    }
+
+    public void startStabilizationCountdown() {
+        isDeviceStabilized = false;
+        startRecordingButton.setEnabled(false);
+        recordingStatusField.setText("Cihaz stabilize oluyor...");
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            int secondsLeft = 15;
+            @Override
+            public void run() {
+                if (secondsLeft > 0) {
+                    recordingStatusField.setText("Stabilizasyon: " + secondsLeft + " saniye...");
+                    secondsLeft--;
+                    new Handler(Looper.getMainLooper()).postDelayed(this, 1000);
+                } else {
+                    isDeviceStabilized = true;
+                    startRecordingButton.setEnabled(true);
+                    recordingStatusField.setText("Cihaz hazir. Kaydi baslatin.");
+                }
+            }
+        }, 1000);
     }
 
     private void startRecording() {
@@ -184,7 +212,8 @@ public class Rhythm24Fragment extends Fragment {
             startRecordingButton.setEnabled(false);
             stopRecordingButton.setEnabled(true);
 
-            // Sayac baslat
+            ((MainActivity) getActivity()).getRrBuffer().clear();
+
             timerRunnable = new Runnable() {
                 @Override
                 public void run() {
@@ -199,7 +228,6 @@ public class Rhythm24Fragment extends Fragment {
             };
             timerHandler.post(timerRunnable);
 
-            // MainActivity'e csv writer'i bildir
             ((MainActivity) getActivity()).setCsvWriter(csvWriter);
 
             Log.d("KAYIT", "Dosya olusturuldu: " + file.getAbsolutePath());

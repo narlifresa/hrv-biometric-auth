@@ -123,6 +123,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                     rrTimestampBuffer.clear();
                     Log.d("HRV", "HRV modu aktif edildi");
                     runTfliteTest();
+                    runOnUiThread(() -> {
+                        Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
+                        if (f != null) ((Rhythm24Fragment) f).startStabilizationCountdown();
+                    });
                     try {
                         java.lang.reflect.Field deviceField = rhythmDevice.getClass().getDeclaredField("device");
                         deviceField.setAccessible(true);
@@ -473,4 +477,9 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             Log.w("BLE", "RR interval yok (flags=" + flags + ")");
         }
     }
+
+    public ArrayList<Double> getRrBuffer() {
+        return rrBuffer;
+    }
+
 }
