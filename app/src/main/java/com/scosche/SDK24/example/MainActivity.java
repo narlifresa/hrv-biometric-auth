@@ -45,8 +45,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private static final UUID CLIENT_CONFIG_UUID  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private ArrayList<long[]> bpmBuffer = new ArrayList<>();
     private ArrayList<Double> rrBuffer = new ArrayList<>();
-    private int currentSignalQuality = 0;
-    private double lastRrMs = 0;
+    private final ArrayList<double[]> rrTimestampBuffer = new ArrayList<>();
 
 
 
@@ -120,6 +119,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                     getSupportFragmentManager().beginTransaction().replace(com.scosche.sdk24.example.R.id.flContent, rhythm24Fragment, "Rhythm24Fragment").commit();
                     isRhythm24 = true;
                     sdk.updateSportMode(255);
+                    bpmHistory.clear();
                     Log.d("HRV", "HRV modu aktif edildi");
                     try {
                         java.lang.reflect.Field deviceField = rhythmDevice.getClass().getDeclaredField("device");
@@ -153,14 +153,13 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         if (isBpmNoise(bpmValue)) return;
         bpmHistory.add(bpmValue);
         if (bpmHistory.size() > 20) bpmHistory.remove(0);
-
         long timestamp = System.currentTimeMillis();
         bpmBuffer.add(new long[]{timestamp, bpmValue});
 
         if (csvWriter != null) {
             try {
-                csvWriter.write(timestamp + "," + bpmValue + "," + (lastRrMs > 0 ? lastRrMs : "") + "\n");
-                lastRrMs = 0;
+                double matchedRr = getClosestRr(timestamp, bpmValue);
+                csvWriter.write(timestamp + "," + bpmValue + "," + (matchedRr > 0 ? matchedRr : "") + "\n");
                 csvWriter.flush();
             } catch (IOException e) {
                 Log.e("CSV", "Yazma hatasi: " + e.getMessage());
@@ -191,19 +190,46 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private final ArrayList<Integer> bpmHistory = new ArrayList<>();
 
     private boolean isBpmNoise(int newBpm) {
-        if (bpmHistory.size() < 5 ) return false;
+        if (newBpm < 40 || newBpm > 200) return true;
+        if (bpmHistory.size() < 3) return false;
+
         int windowSize = Math.min(5, bpmHistory.size());
         int sum = 0;
         for (int i = bpmHistory.size() - windowSize; i < bpmHistory.size(); i++) {
-            sum += bpmHistory.get(i);
+            Integer val = bpmHistory.get(i);
+            if (val == null) continue;
+            sum += val;
         }
         double avg = (double) sum / windowSize;
+        if (avg == 0) return false;
         double deviation = Math.abs(newBpm - avg) / avg;
         if (deviation > 0.40) {
             Log.w("BPM_FILTER", "Noise: " + newBpm + " BPM (ort: " + avg + ")");
             return true;
         }
         return false;
+    }
+
+    private double getClosestRr(long timestamp, int bpm) {
+        double closest = 0;
+        long minDiff = Long.MAX_VALUE;
+        int closestIndex = -1;
+        for (int i = 0; i < rrTimestampBuffer.size(); i++) {
+            double[] entry = rrTimestampBuffer.get(i);
+            long diff = Math.abs((long) entry[0] - timestamp);
+            if (diff < minDiff && diff < 500) {
+                // RR'den BPM hesapla, SDK BPM ile karşılaştır
+                double rrBpm = 60000.0 / entry[1];
+                if (Math.abs(rrBpm - bpm) > 20) continue; // 20 BPM'den fazla fark varsa atla
+                minDiff = diff;
+                closest = entry[1];
+                closestIndex = i;
+            }
+        }
+        if (closestIndex >= 0) {
+            rrTimestampBuffer.remove(closestIndex);
+        }
+        return closest;
     }
 
     @Override
@@ -348,6 +374,12 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     private void connectNativeBle(android.bluetooth.BluetoothDevice btDevice) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                Log.e("BLE", "BLUETOOTH_CONNECT izni yok");
+                return;
+            }
+        }
         bleGatt = btDevice.connectGatt(this, false, gattCallback);
     }
 
@@ -355,6 +387,12 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                        Log.e("BLE", "BLUETOOTH_CONNECT izni yok");
+                        return;
+                    }
+                }
                 Log.d("BLE", "Native baglandi, servisler kesfediliyor...");
                 gatt.discoverServices();
             }
@@ -362,6 +400,12 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                    Log.e("BLE", "BLUETOOTH_CONNECT izni yok");
+                    return;
+                }
+            }
             BluetoothGattService hrService = gatt.getService(HR_SERVICE_UUID);
             if (hrService == null) { Log.e("BLE", "HR Service bulunamadi"); return; }
             BluetoothGattCharacteristic hrChar = hrService.getCharacteristic(HR_MEASUREMENT_UUID);
@@ -407,7 +451,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 Log.d("RR", "RR Interval: " + rrMs + " ms | HR: " + heartRate);
                 rrBuffer.add(rrMs);
                 Log.d("RR_BUFFER", "RR tampon boyutu: " + rrBuffer.size());
-                lastRrMs = rrMs;
+                rrTimestampBuffer.add(new double[]{System.currentTimeMillis(), rrMs});
+                if (rrTimestampBuffer.size() > 20) rrTimestampBuffer.remove(0);
             }
         } else {
             Log.w("BLE", "RR interval yok (flags=" + flags + ")");
