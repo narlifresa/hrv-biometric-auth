@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Arrays;
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.flex.FlexDelegate;
 import java.io.IOException;
@@ -46,8 +47,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private ArrayList<long[]> bpmBuffer = new ArrayList<>();
     private ArrayList<Double> rrBuffer = new ArrayList<>();
     private final ArrayList<double[]> rrTimestampBuffer = new ArrayList<>();
-
-
 
     public ScoscheSDK24 getSdk() {
         return sdk;
@@ -86,6 +85,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     public FileWriter getCsvWriter() {
         return csvWriter;
     }
+
     private void checkPermissions() {
         Log.d("MainActivity", "checkPermissions: Izinler kontrol ediliyor");
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -119,8 +119,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                     getSupportFragmentManager().beginTransaction().replace(com.scosche.sdk24.example.R.id.flContent, rhythm24Fragment, "Rhythm24Fragment").commit();
                     isRhythm24 = true;
                     sdk.updateSportMode(255);
-                    bpmHistory.clear();
+                    rrBuffer.clear();
+                    rrTimestampBuffer.clear();
                     Log.d("HRV", "HRV modu aktif edildi");
+                    runTfliteTest();
                     try {
                         java.lang.reflect.Field deviceField = rhythmDevice.getClass().getDeclaredField("device");
                         deviceField.setAccessible(true);
@@ -149,13 +151,9 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     @Override
     public void updateHeartRate(String heartRate) {
         int bpmValue = Integer.parseInt(heartRate);
-
         if (isBpmNoise(bpmValue)) return;
-        bpmHistory.add(bpmValue);
-        if (bpmHistory.size() > 20) bpmHistory.remove(0);
         long timestamp = System.currentTimeMillis();
         bpmBuffer.add(new long[]{timestamp, bpmValue});
-
         if (csvWriter != null) {
             try {
                 double matchedRr = getClosestRr(timestamp, bpmValue);
@@ -165,7 +163,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 Log.e("CSV", "Yazma hatasi: " + e.getMessage());
             }
         }
-
         if (bpmBuffer.size() >= 2) {
             long elapsed = bpmBuffer.get(bpmBuffer.size() - 1)[0] - bpmBuffer.get(0)[0];
             if (elapsed >= 20000) {
@@ -173,9 +170,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 bpmBuffer.clear();
             }
         }
-
         Log.d("BPM_BUFFER", timestamp + " -> " + bpmValue + " BPM | Tampon: " + bpmBuffer.size());
-
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -187,26 +182,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         });
     }
 
-    private final ArrayList<Integer> bpmHistory = new ArrayList<>();
-
     private boolean isBpmNoise(int newBpm) {
-        if (newBpm < 40 || newBpm > 200) return true;
-        if (bpmHistory.size() < 3) return false;
-
-        int windowSize = Math.min(5, bpmHistory.size());
-        int sum = 0;
-        for (int i = bpmHistory.size() - windowSize; i < bpmHistory.size(); i++) {
-            Integer val = bpmHistory.get(i);
-            if (val == null) continue;
-            sum += val;
-        }
-        double avg = (double) sum / windowSize;
-        if (avg == 0) return false;
-        double deviation = Math.abs(newBpm - avg) / avg;
-        if (deviation > 0.40) {
-            Log.w("BPM_FILTER", "Noise: " + newBpm + " BPM (ort: " + avg + ")");
-            return true;
-        }
         return false;
     }
 
@@ -218,9 +194,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             double[] entry = rrTimestampBuffer.get(i);
             long diff = Math.abs((long) entry[0] - timestamp);
             if (diff < minDiff && diff < 500) {
-                // RR'den BPM hesapla, SDK BPM ile karşılaştır
                 double rrBpm = 60000.0 / entry[1];
-                if (Math.abs(rrBpm - bpm) > 20) continue; // 20 BPM'den fazla fark varsa atla
+                if (Math.abs(rrBpm - bpm) > 20) continue;
                 minDiff = diff;
                 closest = entry[1];
                 closestIndex = i;
@@ -230,6 +205,19 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             rrTimestampBuffer.remove(closestIndex);
         }
         return closest;
+    }
+
+    private float cosineSimilarity(float[] vectorA, float[] vectorB) {
+        float dotProduct = 0;
+        float normA = 0;
+        float normB = 0;
+        for (int i = 0; i < vectorA.length; i++) {
+            dotProduct += vectorA[i] * vectorB[i];
+            normA += vectorA[i] * vectorA[i];
+            normB += vectorB[i] * vectorB[i];
+        }
+        if (normA == 0 || normB == 0) return 0;
+        return dotProduct / (float)(Math.sqrt(normA) * Math.sqrt(normB));
     }
 
     @Override
@@ -373,6 +361,34 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         return options;
     }
 
+    private void runTfliteTest() {
+        if (tfliteInterpreter == null) {
+            Log.e("TFLITE", "Model yuklu degil");
+            return;
+        }
+
+        float[][][] input1 = new float[1][320][1];
+        float[][][] input2 = new float[1][320][1];
+        for (int i = 0; i < 320; i++) {
+            input1[0][i][0] = 0.5f;
+            input2[0][i][0] = 0.6f;
+        }
+
+        float[][] output1 = new float[1][16];
+        float[][] output2 = new float[1][16];
+
+        try {
+            tfliteInterpreter.run(input1, output1);
+            tfliteInterpreter.run(input2, output2);
+            float similarity = cosineSimilarity(output1[0], output2[0]);
+            Log.d("TFLITE", "Embedding1: " + Arrays.toString(output1[0]));
+            Log.d("TFLITE", "Embedding2: " + Arrays.toString(output2[0]));
+            Log.d("TFLITE", "Cosine Similarity: " + similarity);
+        } catch (Exception e) {
+            Log.e("TFLITE", "Inference hatasi: " + e.getMessage());
+        }
+    }
+
     private void connectNativeBle(android.bluetooth.BluetoothDevice btDevice) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
@@ -425,7 +441,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             parseHrMeasurement(characteristic.getValue());
         }
     };
-
 
     private void parseHrMeasurement(byte[] data) {
         if (data == null || data.length < 2) return;
