@@ -32,6 +32,9 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import android.content.res.AssetFileDescriptor;
 import java.io.FileWriter;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.nio.file.Files;
 
 public class MainActivity extends AppCompatActivity implements RhythmSDKScanningCallback, RhythmSDKDeviceCallback, RhythmSDKFitFileCallback, ScannedDeviceFragment.OnListFragmentInteractionListener {
 
@@ -292,6 +295,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
     @Override
     public void deviceLost(RhythmDevice device) {
+        rrBuffer.clear();
+        rrTimestampBuffer.clear();
+        bpmBuffer.clear();
+        Log.d("BLE", "Cihaz kayboldu, buffer'lar temizlendi");
         Fragment f = getSupportFragmentManager().findFragmentByTag("ScannedDeviceFragment");
         if (f != null) ((ScannedDeviceFragment) f).removeDevice(device);
     }
@@ -480,6 +487,131 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
     public ArrayList<Double> getRrBuffer() {
         return rrBuffer;
+    }
+
+    private float[][][] interpolateRrToSignal(ArrayList<Double> rr) {
+        float[][][] signal = new float[1][320][1];
+        if (rr == null || rr.size() < 2) return signal;
+
+        double[] cumTime = new double[rr.size() + 1];
+        cumTime[0] = 0;
+        for (int i = 0; i < rr.size(); i++) {
+            cumTime[i + 1] = cumTime[i] + rr.get(i);
+        }
+
+        double totalTime = cumTime[cumTime.length - 1];
+        if (totalTime == 0) return signal;
+
+        double windowMs = 5000.0;
+        double step = windowMs / 320.0;
+
+        float[] raw = new float[320];
+        for (int i = 0; i < 320; i++) {
+            double t = i * step;
+            double val = 0;
+            for (int j = 0; j < cumTime.length - 1; j++) {
+                if (t >= cumTime[j] && t < cumTime[j + 1]) {
+                    val = rr.get(Math.min(j, rr.size() - 1)) / 1000.0;
+                    break;
+                }
+            }
+            raw[i] = (float) val;
+        }
+
+        // Winsorization: %5 ve %95
+        float[] sorted = raw.clone();
+        java.util.Arrays.sort(sorted);
+        float lower = sorted[(int)(320 * 0.05)];
+        float upper = sorted[(int)(320 * 0.95)];
+        for (int i = 0; i < 320; i++) {
+            raw[i] = Math.max(lower, Math.min(upper, raw[i]));
+        }
+
+        // StandardScaler: mean=0.2686, std=33.307
+        float mean = 0.2685905935296792f;
+        float std = 33.307586893002f;
+        for (int i = 0; i < 320; i++) {
+            signal[0][i][0] = (raw[i] - mean) / std;
+        }
+
+        return signal;
+    }
+    public float[] extractEmbeddingFromRr() {
+        if (tfliteInterpreter == null || rrBuffer.size() < 5) {
+            Log.e("TFLITE", "Model yuklu degil veya yeterli RR yok");
+            return null;
+        }
+        float[][][] input = interpolateRrToSignal(rrBuffer);
+        float[][] output = new float[1][16];
+        try {
+            tfliteInterpreter.run(input, output);
+            Log.d("TFLITE", "Embedding cikarildi: " + Arrays.toString(output[0]));
+            return output[0];
+        } catch (Exception e) {
+            Log.e("TFLITE", "Embedding hatasi: " + e.getMessage());
+            return null;
+        }
+    }
+
+    public void saveTemplate(String userName, float[] embedding) {
+        try {
+            File file = new File(getFilesDir(), "templates.json");
+            org.json.JSONObject templates = new org.json.JSONObject();
+            if (file.exists()) {
+                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(file));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+                br.close();
+                String content = sb.toString();                templates = new org.json.JSONObject(content);
+            }
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (float v : embedding) arr.put(v);
+            templates.put(userName, arr);
+            java.io.FileWriter fw = new java.io.FileWriter(file);
+            fw.write(templates.toString());
+            fw.close();
+            Log.d("TEMPLATE", userName + " kaydedildi");
+        } catch (Exception e) {
+            Log.e("TEMPLATE", "Kayit hatasi: " + e.getMessage());
+        }
+    }
+
+    public float[] loadTemplate(String userName) {
+        try {
+            File file = new File(getFilesDir(), "templates.json");
+            if (!file.exists()) return null;
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(file));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line);
+            br.close();
+            String content = sb.toString();            org.json.JSONObject templates = new org.json.JSONObject(content);
+            if (!templates.has(userName)) return null;
+            org.json.JSONArray arr = templates.getJSONArray(userName);
+            float[] embedding = new float[arr.length()];
+            for (int i = 0; i < arr.length(); i++) {
+                embedding[i] = (float) arr.getDouble(i);
+            }
+            Log.d("TEMPLATE", userName + " yuklendi");
+            return embedding;
+        } catch (Exception e) {
+            Log.e("TEMPLATE", "Yukleme hatasi: " + e.getMessage());
+            return null;
+        }
+    }
+
+    public boolean authenticate(String userName) {
+        float[] stored = loadTemplate(userName);
+        if (stored == null) {
+            Log.w("AUTH", userName + " icin template bulunamadi");
+            return false;
+        }
+        float[] current = extractEmbeddingFromRr();
+        if (current == null) return false;
+        float similarity = cosineSimilarity(stored, current);
+        Log.d("AUTH", userName + " benzerlik: " + similarity);
+        return similarity >= 0.75f;
     }
 
 }

@@ -54,7 +54,7 @@ public class Rhythm24Fragment extends Fragment {
     private TextView heartRateField, batteryField, recordingStatusField;
     private EditText zoneOneTwoBPM, zoneTwoThreeBPM, zoneThreeFourBPM, zoneFourFiveBPM, userNameField;
     private Button readZonesButton, updateZonesButton, readSportModeButton, updateSportModeButton, viewFitFilesButton;
-    private Button startRecordingButton, stopRecordingButton;
+    private Button startRecordingButton, stopRecordingButton, saveTemplateButton, authenticateButton;
     private Spinner sportModeSpinner;
 
     private boolean isRecording = false;
@@ -158,6 +158,8 @@ public class Rhythm24Fragment extends Fragment {
 
         startRecordingButton = view.findViewById(R.id.startRecordingButton);
         stopRecordingButton = view.findViewById(R.id.stopRecordingButton);
+        saveTemplateButton = view.findViewById(R.id.saveTemplateButton);
+        authenticateButton = view.findViewById(R.id.authenticateButton);
 
         startRecordingButton.setEnabled(false);
         startRecordingButton.setOnClickListener(v -> {
@@ -167,7 +169,40 @@ public class Rhythm24Fragment extends Fragment {
             }
             startRecording();
         });
+
         stopRecordingButton.setOnClickListener(v -> stopRecording());
+
+        saveTemplateButton.setOnClickListener(v -> {
+            String userName = userNameField.getText().toString().trim();
+            if (userName.isEmpty()) {
+                Toast.makeText(getContext(), "Lutfen kullanici adi girin.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            float[] embedding = ((MainActivity) getActivity()).extractEmbeddingFromRr();
+            if (embedding == null) {
+                Toast.makeText(getContext(), "Yeterli RR verisi yok.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            ((MainActivity) getActivity()).saveTemplate(userName, embedding);
+            Toast.makeText(getContext(), userName + " template kaydedildi.", Toast.LENGTH_SHORT).show();
+            recordingStatusField.setText("Template kaydedildi: " + userName);
+        });
+
+        authenticateButton.setOnClickListener(v -> {
+            String userName = userNameField.getText().toString().trim();
+            if (userName.isEmpty()) {
+                Toast.makeText(getContext(), "Lutfen kullanici adi girin.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            boolean result = ((MainActivity) getActivity()).authenticate(userName);
+            if (result) {
+                recordingStatusField.setText("Dogrulandi: " + userName);
+                Toast.makeText(getContext(), userName + " dogrulandi!", Toast.LENGTH_SHORT).show();
+            } else {
+                recordingStatusField.setText("Dogrulanamadi: " + userName);
+                Toast.makeText(getContext(), userName + " dogrulanamadi.", Toast.LENGTH_SHORT).show();
+            }
+        });
 
         return view;
     }
@@ -175,6 +210,8 @@ public class Rhythm24Fragment extends Fragment {
     public void startStabilizationCountdown() {
         isDeviceStabilized = false;
         startRecordingButton.setEnabled(false);
+        saveTemplateButton.setEnabled(false);
+        authenticateButton.setEnabled(false);
         recordingStatusField.setText("Cihaz stabilize oluyor...");
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
             int secondsLeft = 15;
@@ -187,6 +224,7 @@ public class Rhythm24Fragment extends Fragment {
                 } else {
                     isDeviceStabilized = true;
                     startRecordingButton.setEnabled(true);
+                    authenticateButton.setEnabled(true);
                     recordingStatusField.setText("Cihaz hazir. Kaydi baslatin.");
                 }
             }
@@ -211,6 +249,8 @@ public class Rhythm24Fragment extends Fragment {
             sessionStartTime = System.currentTimeMillis();
             startRecordingButton.setEnabled(false);
             stopRecordingButton.setEnabled(true);
+            saveTemplateButton.setEnabled(false);
+            authenticateButton.setEnabled(false);
 
             ((MainActivity) getActivity()).getRrBuffer().clear();
 
@@ -243,6 +283,8 @@ public class Rhythm24Fragment extends Fragment {
         timerHandler.removeCallbacks(timerRunnable);
         startRecordingButton.setEnabled(true);
         stopRecordingButton.setEnabled(false);
+        saveTemplateButton.setEnabled(true);
+        authenticateButton.setEnabled(true);
 
         ((MainActivity) getActivity()).setCsvWriter(null);
 
