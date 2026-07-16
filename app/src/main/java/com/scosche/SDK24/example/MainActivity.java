@@ -591,8 +591,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             Log.e("TFLITE", "Model yuklu degil veya yeterli RR yok");
             return null;
         }
-        ArrayList<Double> filtered = filterRrNoise(rrBuffer);
-        float[][][] input = interpolateRrToSignal(filtered);
+                // filterRrNoise threshold Yekta Hoca ile cuma günü netlesecek - gecici devre disi
+        float[][][] input = interpolateRrToSignal(rrBuffer);
         float[][] output = new float[1][16];
         try {
             tfliteInterpreter.run(input, output);
