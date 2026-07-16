@@ -134,8 +134,13 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                         java.lang.reflect.Field deviceField = rhythmDevice.getClass().getDeclaredField("device");
                         deviceField.setAccessible(true);
                         android.bluetooth.BluetoothDevice btDevice = (android.bluetooth.BluetoothDevice) deviceField.get(rhythmDevice);
-                        Log.d("MAC", "Cihaz MAC: " + btDevice.getAddress());
-                        connectNativeBle(btDevice);
+                        // [FIX] btDevice null kontrolü eklendi
+                        if (btDevice != null) {
+                            Log.d("MAC", "Cihaz MAC: " + btDevice.getAddress());
+                            connectNativeBle(btDevice);
+                        } else {
+                            Log.e("MAC", "btDevice null, MAC alinamadi");
+                        }
                     } catch (Exception ex) {
                         Log.e("MAC", "MAC alinamadi: " + ex.getMessage());
                     }
@@ -212,6 +217,37 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             rrTimestampBuffer.remove(closestIndex);
         }
         return closest;
+    }
+
+    private ArrayList<Double> filterRrNoise(ArrayList<Double> rr) {
+        if (rr == null || rr.size() < 3) return rr;
+
+        ArrayList<Double> filtered = new ArrayList<>();
+        int window = 5;          // Yekta Hoca: local average pencere boyutu
+        double threshold = 100;  // Gecici: Yekta Hoca Cuma'da netlestirecek (ms mi, % mi, BPM mi?)
+
+        for (int i = 0; i < rr.size(); i++) {
+            int start = Math.max(0, i - window / 2);
+            int end   = Math.min(rr.size(), start + window);
+            if (end - start < window) start = Math.max(0, end - window);
+
+            double sum = 0;
+            int count = 0;
+            for (int j = start; j < end; j++) {
+                if (j != i) { sum += rr.get(j); count++; }
+            }
+            if (count == 0) { filtered.add(rr.get(i)); continue; }
+
+            double localAvg = sum / count;
+            if (Math.abs(rr.get(i) - localAvg) <= threshold) {
+                filtered.add(rr.get(i));
+            } else {
+                Log.d("RR_FILTER", "Noise atildi: " + rr.get(i) +
+                        " ms | localAvg=" + String.format("%.1f", localAvg) + " ms");
+            }
+        }
+        Log.d("RR_FILTER", "Orijinal: " + rr.size() + " -> Filtrelenmis: " + filtered.size());
+        return filtered;
     }
 
     private float cosineSimilarity(float[] vectorA, float[] vectorB) {
@@ -301,6 +337,18 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         Log.d("BLE", "Cihaz kayboldu, buffer'lar temizlendi");
         Fragment f = getSupportFragmentManager().findFragmentByTag("ScannedDeviceFragment");
         if (f != null) ((ScannedDeviceFragment) f).removeDevice(device);
+    }
+
+    // [FIX] bleGatt referansını tutan ve düzgün kapatan yardımcı metot
+    private void closeBle() {
+        if (bleGatt == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+        }
+        bleGatt.close();
+        bleGatt = null;
     }
 
     @Override
@@ -401,6 +449,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     private void connectNativeBle(android.bluetooth.BluetoothDevice btDevice) {
+        closeBle();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                 Log.e("BLE", "BLUETOOTH_CONNECT izni yok");
@@ -536,12 +585,14 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
         return signal;
     }
+
     public float[] extractEmbeddingFromRr() {
         if (tfliteInterpreter == null || rrBuffer.size() < 5) {
             Log.e("TFLITE", "Model yuklu degil veya yeterli RR yok");
             return null;
         }
-        float[][][] input = interpolateRrToSignal(rrBuffer);
+        ArrayList<Double> filtered = filterRrNoise(rrBuffer);
+        float[][][] input = interpolateRrToSignal(filtered);
         float[][] output = new float[1][16];
         try {
             tfliteInterpreter.run(input, output);
@@ -563,7 +614,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 String line;
                 while ((line = br.readLine()) != null) sb.append(line);
                 br.close();
-                String content = sb.toString();                templates = new org.json.JSONObject(content);
+                String content = sb.toString();
+                templates = new org.json.JSONObject(content);
             }
             org.json.JSONArray arr = new org.json.JSONArray();
             for (float v : embedding) arr.put(v);
@@ -586,7 +638,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             String line;
             while ((line = br.readLine()) != null) sb.append(line);
             br.close();
-            String content = sb.toString();            org.json.JSONObject templates = new org.json.JSONObject(content);
+            String content = sb.toString();
+            org.json.JSONObject templates = new org.json.JSONObject(content);
             if (!templates.has(userName)) return null;
             org.json.JSONArray arr = templates.getJSONArray(userName);
             float[] embedding = new float[arr.length()];

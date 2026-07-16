@@ -230,13 +230,26 @@ public class Rhythm24Fragment extends Fragment {
                     secondsLeft--;
                     new Handler(Looper.getMainLooper()).postDelayed(this, 1000);
                 } else {
-                    isDeviceStabilized = true;
-                    startRecordingButton.setEnabled(true);
-                    authenticateButton.setEnabled(true);
-                    recordingStatusField.setText("Cihaz hazir. Kaydi baslatin.");
+                    waitForRr(); // 15s bitti, RR beklemeye geç
                 }
             }
         }, 1000);
+    }
+
+    private void waitForRr() {
+        if (getActivity() == null) return;
+        MainActivity main = (MainActivity) getActivity();
+
+        if (main.getRrBuffer().size() > 0) {
+            isDeviceStabilized = true;
+            startRecordingButton.setEnabled(true);
+            authenticateButton.setEnabled(true);
+            recordingStatusField.setText("Cihaz hazir. Kaydi baslatin.");
+            Log.d("STABILIZE", "RR verisi alindi, cihaz hazir.");
+        } else {
+            recordingStatusField.setText("RR bekleniyor...");
+            new Handler(Looper.getMainLooper()).postDelayed(this::waitForRr, 1000);
+        }
     }
 
     private void startRecording() {
