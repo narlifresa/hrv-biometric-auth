@@ -551,8 +551,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         double totalTime = cumTime[cumTime.length - 1];
         if (totalTime == 0) return signal;
 
-        double windowMs = 5000.0;
-        double step = windowMs / 320.0;
+        double step = totalTime / 320.0;
+        Log.d("INTERPOLATE", "RR: " + rr.size() + " deger | Sure: " +
+                String.format("%.0f", totalTime) + "ms | Step: " +
+                String.format("%.1f", step) + "ms");
 
         float[] raw = new float[320];
         for (int i = 0; i < 320; i++) {
