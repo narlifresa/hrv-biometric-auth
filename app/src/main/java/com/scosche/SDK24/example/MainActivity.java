@@ -578,11 +578,21 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             raw[i] = Math.max(lower, Math.min(upper, raw[i]));
         }
 
-        // StandardScaler: mean=0.2686, std=33.307
-        float mean = 0.2685905935296792f;
-        float std = 33.307586893002f;
+        float sum = 0;
+        for (float v : raw) sum += v;
+        float rrMean = sum / raw.length;
+
+        float varSum = 0;
+        for (float v : raw) varSum += (v - rrMean) * (v - rrMean);
+        float rrStd = (float) Math.sqrt(varSum / raw.length);
+        if (rrStd < 0.001f) rrStd = 0.001f;
+
+        Log.d("INTERPOLATE", "Normalizasyon - mean: " +
+                String.format("%.4f", rrMean) + " std: " +
+                String.format("%.4f", rrStd));
+
         for (int i = 0; i < 320; i++) {
-            signal[0][i][0] = (raw[i] - mean) / std;
+            signal[0][i][0] = (raw[i] - rrMean) / rrStd;
         }
 
         return signal;
