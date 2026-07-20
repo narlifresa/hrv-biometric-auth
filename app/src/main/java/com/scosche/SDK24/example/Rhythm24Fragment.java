@@ -152,7 +152,6 @@ public class Rhythm24Fragment extends Fragment {
                         .replace(R.id.flContent, fragment, "FitFilesFragment")
                         .addToBackStack("FitFilesFragment").commit();
             } catch (Exception e) {
-                // [FIX] e.printStackTrace() -> Log.e
                 Log.e("FIT_FILES", "Fragment gecis hatasi: " + e.getMessage());
             }
         });
@@ -185,10 +184,6 @@ public class Rhythm24Fragment extends Fragment {
                 return;
             }
             ((MainActivity) getActivity()).saveTemplate(userName, embedding);
-            // [FIX] Embedding çıkarıldıktan SONRA buffer temizleniyor.
-            // stopRecording()'da temizlemek yanlış olurdu — saveTemplate henüz veriye ihtiyaç duyuyor.
-            ((MainActivity) getActivity()).getRrBuffer().clear();
-            Log.d("RR_BUFFER", "Template kaydedildi, rrBuffer temizlendi.");
             Toast.makeText(getContext(), userName + " template kaydedildi.", Toast.LENGTH_SHORT).show();
             recordingStatusField.setText("Template kaydedildi: " + userName);
         });
@@ -199,8 +194,14 @@ public class Rhythm24Fragment extends Fragment {
                 Toast.makeText(getContext(), "Lutfen kullanici adi girin.", Toast.LENGTH_SHORT).show();
                 return;
             }
+            int rrCount = ((MainActivity) getActivity()).getRrBuffer().size();
+            if (rrCount < 50) {
+                Toast.makeText(getContext(),
+                        "Yeterli veri yok: " + rrCount + "/50 RR. Lutfen bekleyin.",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
             boolean result = ((MainActivity) getActivity()).authenticate(userName);
-            // [FIX] Authentication sonrası buffer temizleniyor — stale veri kalmıyor.
             ((MainActivity) getActivity()).getRrBuffer().clear();
             Log.d("RR_BUFFER", "Authentication yapildi, rrBuffer temizlendi.");
             if (result) {
@@ -230,7 +231,7 @@ public class Rhythm24Fragment extends Fragment {
                     secondsLeft--;
                     new Handler(Looper.getMainLooper()).postDelayed(this, 1000);
                 } else {
-                    waitForRr(); // 15s bitti, RR beklemeye geç
+                    waitForRr();
                 }
             }
         }, 1000);
@@ -275,7 +276,6 @@ public class Rhythm24Fragment extends Fragment {
             saveTemplateButton.setEnabled(false);
             authenticateButton.setEnabled(false);
 
-            // Yeni oturum başlıyor — önceki birikmiş RR verisi temizleniyor.
             ((MainActivity) getActivity()).getRrBuffer().clear();
 
             timerRunnable = new Runnable() {
@@ -319,7 +319,6 @@ public class Rhythm24Fragment extends Fragment {
                 csvWriter = null;
             }
         } catch (IOException e) {
-            // [FIX] e.printStackTrace() -> Log.e
             Log.e("KAYIT", "CSV kapatma hatasi: " + e.getMessage());
         }
 

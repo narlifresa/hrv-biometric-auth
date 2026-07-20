@@ -35,6 +35,7 @@ import java.io.FileWriter;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.nio.file.Files;
+import java.util.Collections;
 
 public class MainActivity extends AppCompatActivity implements RhythmSDKScanningCallback, RhythmSDKDeviceCallback, RhythmSDKFitFileCallback, ScannedDeviceFragment.OnListFragmentInteractionListener {
 
@@ -50,9 +51,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private static final UUID HR_MEASUREMENT_UUID = UUID.fromString("00002A37-0000-1000-8000-00805f9b34fb");
     private static final UUID CLIENT_CONFIG_UUID  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private ArrayList<long[]> bpmBuffer = new ArrayList<>();
-    private ArrayList<Double> rrBuffer = new ArrayList<>();
-    private final ArrayList<double[]> rrTimestampBuffer = new ArrayList<>();
-
+    private final List<Double> rrBuffer = Collections.synchronizedList(new ArrayList<>());    private final List<double[]> rrTimestampBuffer = Collections.synchronizedList(new ArrayList<>());
     public ScoscheSDK24 getSdk() {
         return sdk;
     }
@@ -204,19 +203,22 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         double closest = 0;
         long minDiff = Long.MAX_VALUE;
         int closestIndex = -1;
-        for (int i = 0; i < rrTimestampBuffer.size(); i++) {
-            double[] entry = rrTimestampBuffer.get(i);
-            long diff = Math.abs((long) entry[0] - timestamp);
-            if (diff < minDiff && diff < 500) {
-                double rrBpm = 60000.0 / entry[1];
-                if (Math.abs(rrBpm - bpm) > 20) continue;
-                minDiff = diff;
-                closest = entry[1];
-                closestIndex = i;
+        synchronized (rrTimestampBuffer) {
+            for (int i = 0; i < rrTimestampBuffer.size(); i++) {
+                double[] entry = rrTimestampBuffer.get(i);
+                if (entry == null) continue;
+                long diff = Math.abs((long) entry[0] - timestamp);
+                if (diff < minDiff && diff < 500) {
+                    double rrBpm = 60000.0 / entry[1];
+                    if (Math.abs(rrBpm - bpm) > 20) continue;
+                    minDiff = diff;
+                    closest = entry[1];
+                    closestIndex = i;
+                }
             }
-        }
-        if (closestIndex >= 0) {
-            rrTimestampBuffer.remove(closestIndex);
+            if (closestIndex >= 0) {
+                rrTimestampBuffer.remove(closestIndex);
+            }
         }
         return closest;
     }
@@ -528,18 +530,18 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 Log.d("RR", "RR Interval: " + rrMs + " ms | HR: " + heartRate);
                 rrBuffer.add(rrMs);
                 Log.d("RR_BUFFER", "RR tampon boyutu: " + rrBuffer.size());
-                rrTimestampBuffer.add(new double[]{System.currentTimeMillis(), rrMs});
-                if (rrTimestampBuffer.size() > 20) rrTimestampBuffer.remove(0);
+                synchronized (rrTimestampBuffer) {
+                    rrTimestampBuffer.add(new double[]{System.currentTimeMillis(), rrMs});
+                    if (rrTimestampBuffer.size() > 20) rrTimestampBuffer.remove(0);
+                }
             }
         } else {
             Log.w("BLE", "RR interval yok (flags=" + flags + ")");
         }
     }
-
-    public ArrayList<Double> getRrBuffer() {
+    public List<Double> getRrBuffer() {
         return rrBuffer;
     }
-
     private float[][][] interpolateRrToSignal(ArrayList<Double> rr) {
         float[][][] signal = new float[1][320][1];
         if (rr == null || rr.size() < 2) return signal;
@@ -590,23 +592,27 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         if (rrStd < 0.001f) rrStd = 0.001f;
 
         Log.d("INTERPOLATE", "Normalizasyon - mean: " +
-                String.format("%.4f", rrMean) + " std: " +
-                String.format("%.4f", rrStd));
+                String.format("%.4f", rrMean));
 
         for (int i = 0; i < 320; i++) {
-            signal[0][i][0] = (raw[i] - rrMean) / rrStd;
+            signal[0][i][0] = (raw[i] - rrMean) / rrMean;
         }
 
         return signal;
     }
 
+
     public float[] extractEmbeddingFromRr() {
-        if (tfliteInterpreter == null || rrBuffer.size() < 5) {
-            Log.e("TFLITE", "Model yuklu degil veya yeterli RR yok");
-            return null;
+        ArrayList<Double> rrSnapshot;
+        synchronized (rrBuffer) {
+            if (tfliteInterpreter == null || rrBuffer.size() < 5) {
+                Log.e("TFLITE", "Model yuklu degil veya yeterli RR yok");
+                return null;
+            }
+            rrSnapshot = new ArrayList<>(rrBuffer);
         }
-                // filterRrNoise threshold Yekta Hoca ile cuma günü netlesecek - gecici devre disi
-        float[][][] input = interpolateRrToSignal(rrBuffer);
+        // filterRrNoise threshold Yekta Hoca ile netlesecek - gecici devre disi
+        float[][][] input = interpolateRrToSignal(rrSnapshot);
         float[][] output = new float[1][16];
         try {
             tfliteInterpreter.run(input, output);
@@ -628,8 +634,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 String line;
                 while ((line = br.readLine()) != null) sb.append(line);
                 br.close();
-                String content = sb.toString();
-                templates = new org.json.JSONObject(content);
+                templates = new org.json.JSONObject(sb.toString());
             }
             org.json.JSONArray arr = new org.json.JSONArray();
             for (float v : embedding) arr.put(v);
