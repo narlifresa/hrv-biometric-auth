@@ -44,6 +44,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private boolean isRhythm24;
     private Interpreter tfliteInterpreter;
     private BluetoothGatt bleGatt;
+    private String currentSubjectId = "";
+    private int currentSessionId = 1;
     private static final UUID HR_SERVICE_UUID     = UUID.fromString("0000180D-0000-1000-8000-00805f9b34fb");
     private static final UUID HR_MEASUREMENT_UUID = UUID.fromString("00002A37-0000-1000-8000-00805f9b34fb");
     private static final UUID CLIENT_CONFIG_UUID  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
@@ -169,7 +171,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         if (csvWriter != null) {
             try {
                 double matchedRr = getClosestRr(timestamp, bpmValue);
-                csvWriter.write(timestamp + "," + bpmValue + "," + (matchedRr > 0 ? matchedRr : "") + "\n");
+                csvWriter.write(currentSubjectId + "," + currentSessionId + "," + timestamp + "," + bpmValue + "," + (matchedRr > 0 ? matchedRr : "") + "\n");
                 csvWriter.flush();
             } catch (IOException e) {
                 Log.e("CSV", "Yazma hatasi: " + e.getMessage());
@@ -677,6 +679,46 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         float similarity = cosineSimilarity(stored, current);
         Log.d("AUTH", userName + " benzerlik: " + similarity);
         return similarity >= 0.75f;
+    }
+
+    public String getOrCreateSubjectId(String userName) {
+        try {
+            File file = new File(getFilesDir(), "subjects.json");
+            org.json.JSONObject subjects = new org.json.JSONObject();
+            if (file.exists()) {
+                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(file));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+                br.close();
+                subjects = new org.json.JSONObject(sb.toString());
+            }
+            if (subjects.has(userName)) {
+                currentSubjectId = subjects.getString(userName);
+                Log.d("SUBJECT", userName + " mevcut ID: " + currentSubjectId);
+                return currentSubjectId;
+            }
+            int nextId = subjects.length() + 1;
+            currentSubjectId = String.format("S%03d", nextId);
+            subjects.put(userName, currentSubjectId);
+            java.io.FileWriter fw = new java.io.FileWriter(file);
+            fw.write(subjects.toString());
+            fw.close();
+            Log.d("SUBJECT", userName + " yeni ID atandi: " + currentSubjectId);
+            return currentSubjectId;
+        } catch (Exception e) {
+            Log.e("SUBJECT", "Subject ID hatasi: " + e.getMessage());
+            currentSubjectId = "S000";
+            return currentSubjectId;
+        }
+    }
+
+    public int getNextSessionNumber(String subjectId) {
+        File dir = getFilesDir();
+        File[] files = dir.listFiles((d, name) -> name.startsWith(subjectId + "_session"));
+        currentSessionId = (files != null ? files.length : 0) + 1;
+        Log.d("SUBJECT", subjectId + " session numarasi: " + currentSessionId);
+        return currentSessionId;
     }
 
 }

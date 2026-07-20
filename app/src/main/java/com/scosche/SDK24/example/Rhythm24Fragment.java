@@ -261,10 +261,12 @@ public class Rhythm24Fragment extends Fragment {
 
         try {
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-            String fileName = userName.replace(" ", "_") + "_" + timestamp + ".csv";
+            String subjectId = ((MainActivity) getActivity()).getOrCreateSubjectId(userName);
+            int sessionNum = ((MainActivity) getActivity()).getNextSessionNumber(subjectId);
+            String fileName = subjectId + "_session" + sessionNum + "_" + timestamp + ".csv";
             File file = new File(getActivity().getFilesDir(), fileName);
             csvWriter = new FileWriter(file, true);
-            csvWriter.write("timestamp,bpm,rr_ms\n");
+            csvWriter.write("subject_id,session_id,timestamp,bpm,rr_ms\n");
 
             isRecording = true;
             sessionStartTime = System.currentTimeMillis();
