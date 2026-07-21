@@ -32,8 +32,8 @@ public class Rhythm24Fragment extends Fragment {
         BLANK("", -1), HEART_RATE_ONLY("Heart Rate Only", 0), RUNNING("Running", 1), CYCLING("Cycling", 2), SWIMMING("Swimming", 5),
         HRV("Heart Rate Variability", 255), DUATHLON("Duathlon", 253), TRIATHLON("Triathlon", 254);
 
-        public String name;
-        public int id;
+        public final String name;
+        public final int id;
 
         SportMode(String name, int id) {
             this.name = name;
@@ -61,7 +61,7 @@ public class Rhythm24Fragment extends Fragment {
     private boolean isDeviceStabilized = false;
     private long sessionStartTime = 0;
     private FileWriter csvWriter;
-    private Handler timerHandler = new Handler(Looper.getMainLooper());
+    private final Handler timerHandler = new Handler(Looper.getMainLooper());
     private Runnable timerRunnable;
 
     public Rhythm24Fragment() {}
@@ -106,7 +106,7 @@ public class Rhythm24Fragment extends Fragment {
             String zoneTwoThree = zoneTwoThreeBPM.getText().toString();
             String zoneThreeFour = zoneThreeFourBPM.getText().toString();
             String zoneFourFive = zoneFourFiveBPM.getText().toString();
-            if ("".equals(zoneOneTwo) || "".equals(zoneTwoThree) || "".equals(zoneThreeFour) || "".equals(zoneFourFive)) {
+            if (zoneOneTwo.isEmpty() || zoneTwoThree.isEmpty() || zoneThreeFour.isEmpty() || zoneFourFive.isEmpty()) {
                 Toast.makeText(getContext(), "Please enter all zone values.", Toast.LENGTH_LONG).show();
             } else {
                 short z1 = Short.parseShort(zoneOneTwo), z2 = Short.parseShort(zoneTwoThree);
@@ -147,7 +147,7 @@ public class Rhythm24Fragment extends Fragment {
         viewFitFilesButton.setOnClickListener(v -> {
             try {
                 ((MainActivity) getActivity()).getSdk().getFitFiles();
-                Fragment fragment = FitFilesFragment.class.newInstance();
+                Fragment fragment = FitFilesFragment.class.getDeclaredConstructor().newInstance();
                 getActivity().getSupportFragmentManager().beginTransaction()
                         .replace(R.id.flContent, fragment, "FitFilesFragment")
                         .addToBackStack("FitFilesFragment").commit();
@@ -256,7 +256,7 @@ public class Rhythm24Fragment extends Fragment {
         if (getActivity() == null) return;
         MainActivity main = (MainActivity) getActivity();
 
-        if (main.getRrBuffer().size() > 0) {
+        if (!main.getRrBuffer().isEmpty()) {
             isDeviceStabilized = true;
             startRecordingButton.setEnabled(true);
             authenticateButton.setEnabled(true);
@@ -365,7 +365,9 @@ public class Rhythm24Fragment extends Fragment {
         batteryField.setText(String.valueOf(batteryLevel));
     }
 
+    @SuppressWarnings("unused")
     public void updateZone(int zone) {}
 
+    @SuppressWarnings("unused")
     public void updateSportMode(int sportMode) {}
 }

@@ -32,10 +32,8 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import android.content.res.AssetFileDescriptor;
 import java.io.FileWriter;
-import org.json.JSONArray;
-import org.json.JSONObject;
-import java.nio.file.Files;
 import java.util.Collections;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity implements RhythmSDKScanningCallback, RhythmSDKDeviceCallback, RhythmSDKFitFileCallback, ScannedDeviceFragment.OnListFragmentInteractionListener {
 
@@ -50,7 +48,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private static final UUID HR_SERVICE_UUID     = UUID.fromString("0000180D-0000-1000-8000-00805f9b34fb");
     private static final UUID HR_MEASUREMENT_UUID = UUID.fromString("00002A37-0000-1000-8000-00805f9b34fb");
     private static final UUID CLIENT_CONFIG_UUID  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
-    private ArrayList<long[]> bpmBuffer = new ArrayList<>();
+    private final ArrayList<long[]> bpmBuffer = new ArrayList<>();
     private final List<Double> rrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<double[]> rrTimestampBuffer = Collections.synchronizedList(new ArrayList<>());
     private String currentActivity = "rest";
@@ -61,7 +59,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(com.scosche.sdk24.example.R.layout.activity_main);
+        setContentView(R.layout.activity_main);
         Log.d("MainActivity", "onCreate: Baslatildi");
         checkPermissions();
         sdk = new ScoscheSDK24(this);
@@ -73,11 +71,11 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         }
         Log.d("MainActivity", "onCreate: SDK baslatildi");
         try {
-            Fragment fragment = ScannedDeviceFragment.class.newInstance();
-            getSupportFragmentManager().beginTransaction().replace(com.scosche.sdk24.example.R.id.flContent, fragment, "ScannedDeviceFragment").commit();
+            Fragment fragment = ScannedDeviceFragment.class.getDeclaredConstructor().newInstance();
+            getSupportFragmentManager().beginTransaction().replace(R.id.flContent, fragment, "ScannedDeviceFragment").commit();
             Log.d("MainActivity", "onCreate: ScannedDeviceFragment yuklendi");
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e("MainActivity", "Fragment olusturulamadi: " + e.getMessage());
         }
         sdk.startScan(this);
     }
@@ -86,10 +84,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
     public void setCsvWriter(FileWriter writer) {
         this.csvWriter = writer;
-    }
-
-    public FileWriter getCsvWriter() {
-        return csvWriter;
     }
 
     private void checkPermissions() {
@@ -121,8 +115,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         try {
             switch (rhythmDevice.deviceModel) {
                 case RHYTHM_24:
-                    Fragment rhythm24Fragment = Rhythm24Fragment.class.newInstance();
-                    getSupportFragmentManager().beginTransaction().replace(com.scosche.sdk24.example.R.id.flContent, rhythm24Fragment, "Rhythm24Fragment").commit();
+                    Fragment rhythm24Fragment = Rhythm24Fragment.class.getDeclaredConstructor().newInstance();
+                    getSupportFragmentManager().beginTransaction().replace(R.id.flContent, rhythm24Fragment, "Rhythm24Fragment").commit();
                     isRhythm24 = true;
                     sdk.updateSportMode(255);
                     rrBuffer.clear();
@@ -150,7 +144,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                     break;
                 case RHYTHM_E:
                 case RHYTHM_19:
-                    Fragment rhythmPlusFragment = RhythmPlusFragment.class.newInstance();
+                    Fragment rhythmPlusFragment = RhythmPlusFragment.class.getDeclaredConstructor().newInstance();
                     getSupportFragmentManager().beginTransaction().replace(R.id.flContent, rhythmPlusFragment, "RhythmPlusFragment").commit();
                     isRhythm24 = false;
                     break;
@@ -159,7 +153,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                     break;
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e("MainActivity", "deviceConnected hatasi: " + e.getMessage());
         }
     }
 
@@ -185,13 +179,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             }
         }
         Log.d("BPM_BUFFER", timestamp + " -> " + bpmValue + " BPM | Tampon: " + bpmBuffer.size());
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
-                if (f != null) {
-                    ((Rhythm24Fragment) f).updateHeartRate(heartRate);
-                }
+        runOnUiThread(() -> {
+            Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
+            if (f != null) {
+                ((Rhythm24Fragment) f).updateHeartRate(heartRate);
             }
         });
     }
@@ -224,6 +215,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         return closest;
     }
 
+    @SuppressWarnings("unused")
     private ArrayList<Double> filterRrNoise(ArrayList<Double> rr) {
         if (rr == null || rr.size() < 3) return rr;
 
@@ -248,7 +240,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 filtered.add(rr.get(i));
             } else {
                 Log.d("RR_FILTER", "Noise atildi: " + rr.get(i) +
-                        " ms | localAvg=" + String.format("%.1f", localAvg) + " ms");
+                        " ms | localAvg=" + String.format(Locale.getDefault(), "%.1f", localAvg) + " ms");
             }
         }
         Log.d("RR_FILTER", "Orijinal: " + rr.size() + " -> Filtrelenmis: " + filtered.size());
@@ -270,62 +262,52 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
     @Override
     public void monitorStateInvalid() {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (isRhythm24) {
-                    Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
-                    if (f != null) ((Rhythm24Fragment) f).updateHeartRate("???");
-                } else {
-                    Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
-                    if (f != null) ((RhythmPlusFragment) f).updateHeartRate("???");
-                }
+        runOnUiThread(() -> {
+            if (isRhythm24) {
+                Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
+                if (f != null) ((Rhythm24Fragment) f).updateHeartRate("???");
+            } else {
+                Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
+                if (f != null) ((RhythmPlusFragment) f).updateHeartRate("???");
             }
         });
     }
 
     @Override
     public void updateBatteryLevel(int batteryLevel) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (isRhythm24) {
-                    Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
-                    if (f != null) ((Rhythm24Fragment) f).updateBattery(batteryLevel);
-                } else {
-                    Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
-                    if (f != null) ((RhythmPlusFragment) f).updateBattery(batteryLevel);
-                }
+        runOnUiThread(() -> {
+            if (isRhythm24) {
+                Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
+                if (f != null) ((Rhythm24Fragment) f).updateBattery(batteryLevel);
+            } else {
+                Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
+                if (f != null) ((RhythmPlusFragment) f).updateBattery(batteryLevel);
             }
         });
     }
 
     @Override
+    @SuppressWarnings("unused")
     public void updateZone(int zone) {}
 
+    @SuppressWarnings("unused")
     public void onSignalQuality(int quality) {
         Log.d("SIGNAL", "Sinyal kalitesi: " + quality);
     }
 
     @Override
     public void updateSportMode(int sportMode) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
-                if (f != null) ((Rhythm24Fragment) f).updateSportMode(sportMode);
-            }
+        runOnUiThread(() -> {
+            Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
+            if (f != null) ((Rhythm24Fragment) f).updateSportMode(sportMode);
         });
     }
 
     @Override
     public void updateFirmwareVersion(String value) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
-                if (f != null) ((RhythmPlusFragment) f).updateFirmwareVersion(value);
-            }
+        runOnUiThread(() -> {
+            Fragment f = getSupportFragmentManager().findFragmentByTag("RhythmPlusFragment");
+            if (f != null) ((RhythmPlusFragment) f).updateFirmwareVersion(value);
         });
     }
 
@@ -363,32 +345,24 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     @Override
-    public void fitFileDownloadComplete(byte[] data, String fileName) {
-        this.fileName = fileName;
-        this.data = data;
+    public void fitFileDownloadComplete(byte[] fitFileData, String downloadedFileName) {
+        this.fileName = downloadedFileName;
+        this.data = fitFileData;
         saveFile();
     }
 
     @Override
     public void fitFileDeleteComplete(String fileName) {
         getSdk().clearFiles();
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Toast.makeText(getApplicationContext(), "File deleted: " + fileName, Toast.LENGTH_LONG).show();
-            }
-        });
+        runOnUiThread(() -> Toast.makeText(getApplicationContext(), "File deleted: " + fileName, Toast.LENGTH_LONG).show());
         getSdk().getFitFiles();
     }
 
     @Override
     public void downloadProgressUpdate(int percent, FitFileContent.FitFileInfo file) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Fragment f = getSupportFragmentManager().findFragmentByTag("FitFilesFragment");
-                if (f != null) ((FitFilesFragment) f).getAdapter().test(percent);
-            }
+        runOnUiThread(() -> {
+            Fragment f = getSupportFragmentManager().findFragmentByTag("FitFilesFragment");
+            if (f != null) ((FitFilesFragment) f).getAdapter().test(percent);
         });
     }
 
@@ -406,17 +380,18 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         if (requestCode == 23 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             saveFile();
         }
     }
 
     private MappedByteBuffer loadModelFile() throws IOException {
-        AssetFileDescriptor fileDescriptor = getAssets().openFd("ppg_biometric_embedding.tflite");
-        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
-        FileChannel fileChannel = inputStream.getChannel();
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, fileDescriptor.getStartOffset(), fileDescriptor.getDeclaredLength());
+        try (AssetFileDescriptor fileDescriptor = getAssets().openFd("ppg_biometric_embedding.tflite");
+             FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor())) {
+            FileChannel fileChannel = inputStream.getChannel();
+            return fileChannel.map(FileChannel.MapMode.READ_ONLY, fileDescriptor.getStartOffset(), fileDescriptor.getDeclaredLength());
+        }
     }
 
     private Interpreter.Options getTfliteOptions() {
@@ -507,25 +482,25 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         }
     };
 
-    private void parseHrMeasurement(byte[] data) {
-        if (data == null || data.length < 2) return;
-        int flags = data[0] & 0xFF;
+    private void parseHrMeasurement(byte[] hrData) {
+        if (hrData == null || hrData.length < 2) return;
+        int flags = hrData[0] & 0xFF;
         boolean isUint16  = (flags & 0x01) != 0;
         boolean hasEnergy = (flags & 0x08) != 0;
         boolean hasRR     = (flags & 0x10) != 0;
         int offset = 1;
         int heartRate;
         if (isUint16) {
-            heartRate = (data[offset] & 0xFF) | ((data[offset + 1] & 0xFF) << 8);
+            heartRate = (hrData[offset] & 0xFF) | ((hrData[offset + 1] & 0xFF) << 8);
             offset += 2;
         } else {
-            heartRate = data[offset] & 0xFF;
+            heartRate = hrData[offset] & 0xFF;
             offset += 1;
         }
         if (hasEnergy) offset += 2;
         if (hasRR) {
-            while (offset + 1 < data.length) {
-                int rrRaw = (data[offset] & 0xFF) | ((data[offset + 1] & 0xFF) << 8);
+            while (offset + 1 < hrData.length) {
+                int rrRaw = (hrData[offset] & 0xFF) | ((hrData[offset + 1] & 0xFF) << 8);
                 offset += 2;
                 double rrMs = (rrRaw / 1024.0) * 1000.0;
                 Log.d("RR", "RR Interval: " + rrMs + " ms | HR: " + heartRate);
@@ -558,8 +533,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
         double step = totalTime / 320.0;
         Log.d("INTERPOLATE", "RR: " + rr.size() + " deger | Sure: " +
-                String.format("%.0f", totalTime) + "ms | Step: " +
-                String.format("%.1f", step) + "ms");
+                String.format(Locale.getDefault(), "%.0f", totalTime) + "ms | Step: " +
+                String.format(Locale.getDefault(), "%.1f", step) + "ms");
 
         float[] raw = new float[320];
         for (int i = 0; i < 320; i++) {
@@ -592,7 +567,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         if (rrStd < 0.001f) rrStd = 0.001f;
 
         Log.d("INTERPOLATE", "Normalizasyon - mean: " +
-                String.format("%.4f", rrMean));
+                String.format(Locale.getDefault(), "%.4f", rrMean));
 
         for (int i = 0; i < 320; i++) {
             signal[0][i][0] = (raw[i] - rrMean) / rrMean;
@@ -704,7 +679,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 return currentSubjectId;
             }
             int nextId = subjects.length() + 1;
-            currentSubjectId = String.format("S%03d", nextId);
+            currentSubjectId = String.format(Locale.getDefault(), "S%03d", nextId);
             subjects.put(userName, currentSubjectId);
             java.io.FileWriter fw = new java.io.FileWriter(file);
             fw.write(subjects.toString());
