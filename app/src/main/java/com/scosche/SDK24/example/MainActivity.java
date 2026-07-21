@@ -51,7 +51,9 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private static final UUID HR_MEASUREMENT_UUID = UUID.fromString("00002A37-0000-1000-8000-00805f9b34fb");
     private static final UUID CLIENT_CONFIG_UUID  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private ArrayList<long[]> bpmBuffer = new ArrayList<>();
-    private final List<Double> rrBuffer = Collections.synchronizedList(new ArrayList<>());    private final List<double[]> rrTimestampBuffer = Collections.synchronizedList(new ArrayList<>());
+    private final List<Double> rrBuffer = Collections.synchronizedList(new ArrayList<>());
+    private final List<double[]> rrTimestampBuffer = Collections.synchronizedList(new ArrayList<>());
+    private String currentActivity = "rest";
     public ScoscheSDK24 getSdk() {
         return sdk;
     }
@@ -170,8 +172,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         if (csvWriter != null) {
             try {
                 double matchedRr = getClosestRr(timestamp, bpmValue);
-                csvWriter.write(currentSubjectId + "," + currentSessionId + "," + timestamp + "," + bpmValue + "," + (matchedRr > 0 ? matchedRr : "") + "\n");
-                csvWriter.flush();
+                csvWriter.write(currentSubjectId + "," + currentSessionId + "," + currentActivity + "," + timestamp + "," + bpmValue + "," + (matchedRr > 0 ? matchedRr : "") + "\n");                csvWriter.flush();
             } catch (IOException e) {
                 Log.e("CSV", "Yazma hatasi: " + e.getMessage());
             }
@@ -724,6 +725,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         currentSessionId = (files != null ? files.length : 0) + 1;
         Log.d("SUBJECT", subjectId + " session numarasi: " + currentSessionId);
         return currentSessionId;
+    }
+
+    public void setCurrentActivity(String activity) {
+        this.currentActivity = activity;
     }
 
 }

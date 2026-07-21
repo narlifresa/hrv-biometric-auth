@@ -167,7 +167,22 @@ public class Rhythm24Fragment extends Fragment {
                 Toast.makeText(getContext(), "Cihaz stabilize olmadi, lutfen bekleyin.", Toast.LENGTH_SHORT).show();
                 return;
             }
-            startRecording();
+            String userName = userNameField.getText().toString().trim();
+            if (userName.isEmpty()) {
+                Toast.makeText(getContext(), "Lutfen kullanici adi girin.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // Aktivite secim dialogu
+            String[] activities = {"Dinlenme (rest)", "Yürüyüş (walking)", "Egzersiz sonrasi (post_exercise)"};
+            String[] activityKeys = {"rest", "walking", "post_exercise"};
+            new android.app.AlertDialog.Builder(getContext())
+                    .setTitle("Aktivite turunu secin")
+                    .setItems(activities, (dialog, which) -> {
+                        ((MainActivity) getActivity()).setCurrentActivity(activityKeys[which]);
+                        startRecording();
+                    })
+                    .setCancelable(true)
+                    .show();
         });
 
         stopRecordingButton.setOnClickListener(v -> stopRecording());
@@ -267,7 +282,7 @@ public class Rhythm24Fragment extends Fragment {
             String fileName = subjectId + "_session" + sessionNum + "_" + timestamp + ".csv";
             File file = new File(getActivity().getFilesDir(), fileName);
             csvWriter = new FileWriter(file, true);
-            csvWriter.write("subject_id,session_id,timestamp,bpm,rr_ms\n");
+            csvWriter.write("subject_id,session_id,activity,timestamp,bpm,rr_ms\n");
 
             isRecording = true;
             sessionStartTime = System.currentTimeMillis();
