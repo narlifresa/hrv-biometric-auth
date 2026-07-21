@@ -275,6 +275,25 @@ public class Rhythm24Fragment extends Fragment {
             return;
         }
 
+        // BPM validasyonu — 100+ BPM'de veri kalitesi dusuk
+        String bpmText = heartRateField.getText().toString().trim();
+        if (!bpmText.isEmpty() && !bpmText.equals("???")) {
+            try {
+                int currentBpm = Integer.parseInt(bpmText);
+                if (currentBpm > 100) {
+                    new android.app.AlertDialog.Builder(getContext())
+                            .setTitle("Yuksek Kalp Hizi: " + currentBpm + " BPM")
+                            .setMessage("Veri kalitesi dusuk olabilir. Cihazi cikarin, tekrar takin ve stabilize olmasini bekleyin.")
+                            .setPositiveButton("Tamam", null)
+                            .show();
+                    Log.w("KAYIT", "Kayit engellendi - BPM cok yuksek: " + currentBpm);
+                    return;
+                }
+            } catch (NumberFormatException e) {
+                Log.w("KAYIT", "BPM okunamadi, devam ediliyor");
+            }
+        }
+
         try {
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
             String subjectId = ((MainActivity) getActivity()).getOrCreateSubjectId(userName);

@@ -574,13 +574,12 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             raw[i] = (float) val;
         }
 
-        // Winsorization: %5 ve %95
-        float[] sorted = raw.clone();
-        java.util.Arrays.sort(sorted);
-        float lower = sorted[(int)(320 * 0.05)];
-        float upper = sorted[(int)(320 * 0.95)];
+        // ESKİ - Winsorization: %5 ve %95
+        // YENİ - sabit fizyolojik sınırlar (40-150 BPM arası):
+        float lowerFixed = 0.40f;  // 150 BPM
+        float upperFixed = 1.50f;  // 40 BPM
         for (int i = 0; i < 320; i++) {
-            raw[i] = Math.max(lower, Math.min(upper, raw[i]));
+            raw[i] = Math.max(lowerFixed, Math.min(upperFixed, raw[i]));
         }
 
         float sum = 0;
