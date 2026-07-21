@@ -280,14 +280,11 @@ public class Rhythm24Fragment extends Fragment {
         if (!bpmText.isEmpty() && !bpmText.equals("???")) {
             try {
                 int currentBpm = Integer.parseInt(bpmText);
-                if (currentBpm > 100) {
-                    new android.app.AlertDialog.Builder(getContext())
-                            .setTitle("Yuksek Kalp Hizi: " + currentBpm + " BPM")
-                            .setMessage("Veri kalitesi dusuk olabilir. Cihazi cikarin, tekrar takin ve stabilize olmasini bekleyin.")
-                            .setPositiveButton("Tamam", null)
-                            .show();
-                    Log.w("KAYIT", "Kayit engellendi - BPM cok yuksek: " + currentBpm);
-                    return;
+                if (currentBpm > 130) {
+                    Toast.makeText(getContext(),
+                            "Uyari: BPM yuksek (" + currentBpm + "). Veri kalitesi dusuk olabilir.",
+                            Toast.LENGTH_LONG).show();
+                    Log.w("KAYIT", "Yuksek BPM ile kayit basladi: " + currentBpm);
                 }
             } catch (NumberFormatException e) {
                 Log.w("KAYIT", "BPM okunamadi, devam ediliyor");
