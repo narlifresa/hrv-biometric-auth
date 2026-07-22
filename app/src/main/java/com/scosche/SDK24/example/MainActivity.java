@@ -159,7 +159,13 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
 
     @Override
     public void updateHeartRate(String heartRate) {
-        int bpmValue = Integer.parseInt(heartRate);
+        int bpmValue;
+        try {
+            bpmValue = Integer.parseInt(heartRate);
+        } catch (NumberFormatException e) {
+            Log.w("BPM", "Gecersiz BPM degeri: " + heartRate);
+            return;
+        };
         if (isBpmNoise(bpmValue)) return;
         long timestamp = System.currentTimeMillis();
         bpmBuffer.add(new long[]{timestamp, bpmValue});

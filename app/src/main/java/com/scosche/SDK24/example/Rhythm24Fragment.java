@@ -357,6 +357,12 @@ public class Rhythm24Fragment extends Fragment {
         Toast.makeText(getContext(), "Kayit durduruldu.", Toast.LENGTH_SHORT).show();
     }
 
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        timerHandler.removeCallbacksAndMessages(null);
+    }
+
     public void updateHeartRate(String heartRate) {
         heartRateField.setText(heartRate);
     }
