@@ -619,7 +619,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             }
             org.json.JSONArray arr = new org.json.JSONArray();
             for (float v : embedding) arr.put(v);
-            templates.put(userName, arr);
+            org.json.JSONObject entry = new org.json.JSONObject();
+            entry.put("embedding", arr);
+            entry.put("timestamp", System.currentTimeMillis());
+            templates.put(userName, entry);
             java.io.FileWriter fw = new java.io.FileWriter(file);
             fw.write(templates.toString());
             fw.close();
@@ -641,7 +644,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             String content = sb.toString();
             org.json.JSONObject templates = new org.json.JSONObject(content);
             if (!templates.has(userName)) return null;
-            org.json.JSONArray arr = templates.getJSONArray(userName);
+            Object value = templates.get(userName);
+            org.json.JSONArray arr = (value instanceof org.json.JSONObject)
+                    ? ((org.json.JSONObject) value).getJSONArray("embedding")
+                    : templates.getJSONArray(userName);
             float[] embedding = new float[arr.length()];
             for (int i = 0; i < arr.length(); i++) {
                 embedding[i] = (float) arr.getDouble(i);

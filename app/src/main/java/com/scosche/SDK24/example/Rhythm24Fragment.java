@@ -210,6 +210,7 @@ public class Rhythm24Fragment extends Fragment {
                 return;
             }
             int rrCount = ((MainActivity) getActivity()).getRrBuffer().size();
+            authenticateButton.setText("Kimlik Dogrula (" + rrCount + "/50 RR)");
             if (rrCount < 50) {
                 Toast.makeText(getContext(),
                         "Yeterli veri yok: " + rrCount + "/50 RR. Lutfen bekleyin.",
@@ -274,8 +275,22 @@ public class Rhythm24Fragment extends Fragment {
         }
     }
 
+    private String getTemplateTimestamp(org.json.JSONObject templates, String userName) {
+        try {
+            if (!templates.has(userName)) return "-";
+            Object value = templates.get(userName);
+            if (!(value instanceof org.json.JSONObject)) return "-";
+            long timestamp = ((org.json.JSONObject) value).optLong("timestamp", -1);
+            if (timestamp <= 0) return "-";
+            return new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date(timestamp));
+        } catch (Exception e) {
+            return "-";
+        }
+    }
+
     private void showManageUsersDialog() {
         org.json.JSONObject subjects = readJsonFile("subjects.json");
+        org.json.JSONObject templates = readJsonFile("templates.json");
         java.util.Iterator<String> keys = subjects.keys();
         java.util.List<String> userNames = new java.util.ArrayList<>();
         while (keys.hasNext()) userNames.add(keys.next());
@@ -305,7 +320,8 @@ public class Rhythm24Fragment extends Fragment {
             row.setPadding(0, padding / 2, 0, padding / 2);
 
             TextView nameView = new TextView(getContext());
-            nameView.setText(userName);
+            String timestampStr = getTemplateTimestamp(templates, userName);
+            nameView.setText(userName + "\nkaydedildi: " + timestampStr);
             nameView.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -421,9 +437,11 @@ public class Rhythm24Fragment extends Fragment {
                 public void run() {
                     if (isRecording) {
                         long elapsed = (System.currentTimeMillis() - sessionStartTime) / 1000;
+                        int rrCount = ((MainActivity) getActivity()).getRrBuffer().size();
                         String status = String.format(Locale.getDefault(),
-                                "Kayit: %02d:%02d | Dosya: %s", elapsed / 60, elapsed % 60, fileName);
+                                "Kayit: %02d:%02d | %d RR", elapsed / 60, elapsed % 60, rrCount);
                         recordingStatusField.setText(status);
+                        authenticateButton.setText("Kimlik Dogrula (" + rrCount + "/50 RR)");
                         timerHandler.postDelayed(this, 1000);
                     }
                 }
