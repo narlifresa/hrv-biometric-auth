@@ -54,7 +54,7 @@ public class Rhythm24Fragment extends Fragment {
     private TextView heartRateField, batteryField, recordingStatusField;
     private EditText zoneOneTwoBPM, zoneTwoThreeBPM, zoneThreeFourBPM, zoneFourFiveBPM, userNameField;
     private Button readZonesButton, updateZonesButton, readSportModeButton, updateSportModeButton, viewFitFilesButton;
-    private Button startRecordingButton, stopRecordingButton, saveTemplateButton, authenticateButton;
+    private Button startRecordingButton, stopRecordingButton, saveTemplateButton, authenticateButton, manageUsersButton;
     private Spinner sportModeSpinner;
 
     private boolean isRecording = false;
@@ -228,7 +228,106 @@ public class Rhythm24Fragment extends Fragment {
             }
         });
 
+        manageUsersButton = view.findViewById(R.id.manageUsersButton);
+        manageUsersButton.setOnClickListener(v -> showManageUsersDialog());
+
         return view;
+    }
+
+    private org.json.JSONObject readJsonFile(String fileName) {
+        try {
+            File file = new File(getActivity().getFilesDir(), fileName);
+            if (!file.exists()) return new org.json.JSONObject();
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(file));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line);
+            br.close();
+            return new org.json.JSONObject(sb.toString());
+        } catch (Exception e) {
+            Log.e("MANAGE_USERS", "Okuma hatasi (" + fileName + "): " + e.getMessage());
+            return new org.json.JSONObject();
+        }
+    }
+
+    private void deleteUser(String userName) {
+        try {
+            org.json.JSONObject subjects = readJsonFile("subjects.json");
+            subjects.remove(userName);
+            FileWriter subjectsWriter = new FileWriter(new File(getActivity().getFilesDir(), "subjects.json"));
+            subjectsWriter.write(subjects.toString());
+            subjectsWriter.close();
+
+            org.json.JSONObject templates = readJsonFile("templates.json");
+            templates.remove(userName);
+            FileWriter templatesWriter = new FileWriter(new File(getActivity().getFilesDir(), "templates.json"));
+            templatesWriter.write(templates.toString());
+            templatesWriter.close();
+
+            Toast.makeText(getContext(), userName + " silindi.", Toast.LENGTH_SHORT).show();
+            Log.d("MANAGE_USERS", userName + " subjects.json ve templates.json'dan silindi.");
+        } catch (IOException e) {
+            Toast.makeText(getContext(), "Silme hatasi: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Log.e("MANAGE_USERS", "Silme hatasi: " + e.getMessage());
+        }
+    }
+
+    private void showManageUsersDialog() {
+        org.json.JSONObject subjects = readJsonFile("subjects.json");
+        java.util.Iterator<String> keys = subjects.keys();
+        java.util.List<String> userNames = new java.util.ArrayList<>();
+        while (keys.hasNext()) userNames.add(keys.next());
+
+        if (userNames.isEmpty()) {
+            Toast.makeText(getContext(), "Kayitli kullanici yok.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+
+        android.widget.ScrollView scrollView = new android.widget.ScrollView(getContext());
+        android.widget.LinearLayout container = new android.widget.LinearLayout(getContext());
+        container.setOrientation(android.widget.LinearLayout.VERTICAL);
+        container.setPadding(padding, padding, padding, padding);
+        scrollView.addView(container);
+
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(getContext())
+                .setTitle("Kullanicilari Yonet")
+                .setView(scrollView)
+                .setNegativeButton("Kapat", null)
+                .create();
+
+        for (String userName : userNames) {
+            android.widget.LinearLayout row = new android.widget.LinearLayout(getContext());
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setPadding(0, padding / 2, 0, padding / 2);
+
+            TextView nameView = new TextView(getContext());
+            nameView.setText(userName);
+            nameView.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            Button deleteButton = new Button(getContext());
+            deleteButton.setText("Sil");
+            deleteButton.setOnClickListener(v -> {
+                new android.app.AlertDialog.Builder(getContext())
+                        .setTitle("Kullaniciyi Sil")
+                        .setMessage(userName + " silinsin mi?")
+                        .setPositiveButton("Evet", (d, w) -> {
+                            deleteUser(userName);
+                            dialog.dismiss();
+                            showManageUsersDialog();
+                        })
+                        .setNegativeButton("Vazgec", null)
+                        .show();
+            });
+
+            row.addView(nameView);
+            row.addView(deleteButton);
+            container.addView(row);
+        }
+
+        dialog.show();
     }
 
     public void startStabilizationCountdown() {
@@ -295,8 +394,14 @@ public class Rhythm24Fragment extends Fragment {
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
             String subjectId = ((MainActivity) getActivity()).getOrCreateSubjectId(userName);
             int sessionNum = ((MainActivity) getActivity()).getNextSessionNumber(subjectId);
-            String fileName = subjectId + "_session" + sessionNum + "_" + timestamp + ".csv";
-            File file = new File(getActivity().getFilesDir(), fileName);
+            String safeName = userName.replace(" ", "_")
+                    .replace("ş","s").replace("Ş","S")
+                    .replace("ğ","g").replace("Ğ","G")
+                    .replace("ü","u").replace("Ü","U")
+                    .replace("ö","o").replace("Ö","O")
+                    .replace("ç","c").replace("Ç","C")
+                    .replace("ı","i").replace("İ","I");
+            String fileName = safeName + "_session" + sessionNum + "_" + timestamp + ".csv";            File file = new File(getActivity().getFilesDir(), fileName);
             csvWriter = new FileWriter(file, true);
             csvWriter.write("subject_id,session_id,activity,timestamp,bpm,rr_ms\n");
 
