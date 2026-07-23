@@ -654,17 +654,17 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         }
     }
 
-    public boolean authenticate(String userName) {
+    public float authenticate(String userName) {
         float[] stored = loadTemplate(userName);
         if (stored == null) {
             Log.w("AUTH", userName + " icin template bulunamadi");
-            return false;
+            return -1f;
         }
         float[] current = extractEmbeddingFromRr();
-        if (current == null) return false;
+        if (current == null) return -1f;
         float similarity = cosineSimilarity(stored, current);
         Log.d("AUTH", userName + " benzerlik: " + similarity);
-        return similarity >= 0.75f;
+        return similarity;
     }
 
     public String getOrCreateSubjectId(String userName) {

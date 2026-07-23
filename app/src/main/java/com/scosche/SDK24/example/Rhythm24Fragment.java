@@ -216,15 +216,17 @@ public class Rhythm24Fragment extends Fragment {
                         Toast.LENGTH_SHORT).show();
                 return;
             }
-            boolean result = ((MainActivity) getActivity()).authenticate(userName);
+            float similarity = ((MainActivity) getActivity()).authenticate(userName);
             ((MainActivity) getActivity()).getRrBuffer().clear();
             Log.d("RR_BUFFER", "Authentication yapildi, rrBuffer temizlendi.");
+            boolean result = similarity >= 0.75f;
+            String simStr = similarity >= 0 ? String.format(Locale.getDefault(), "%.4f", similarity) : "hata";
             if (result) {
-                recordingStatusField.setText("Dogrulandi: " + userName);
-                Toast.makeText(getContext(), userName + " dogrulandi!", Toast.LENGTH_SHORT).show();
+                recordingStatusField.setText("Dogrulandi: " + userName + " | " + simStr);
+                Toast.makeText(getContext(), userName + " dogrulandi! (" + simStr + ")", Toast.LENGTH_SHORT).show();
             } else {
-                recordingStatusField.setText("Dogrulanamadi: " + userName);
-                Toast.makeText(getContext(), userName + " dogrulanamadi.", Toast.LENGTH_SHORT).show();
+                recordingStatusField.setText("Dogrulanamadi: " + userName + " | " + simStr);
+                Toast.makeText(getContext(), userName + " dogrulanamadi. (" + simStr + ")", Toast.LENGTH_SHORT).show();
             }
         });
 
