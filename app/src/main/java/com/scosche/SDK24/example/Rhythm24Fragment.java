@@ -280,7 +280,10 @@ public class Rhythm24Fragment extends Fragment {
             if (!templates.has(userName)) return "-";
             Object value = templates.get(userName);
             if (!(value instanceof org.json.JSONObject)) return "-";
-            long timestamp = ((org.json.JSONObject) value).optLong("timestamp", -1);
+            org.json.JSONObject entry = (org.json.JSONObject) value;
+            String savedAt = entry.optString("savedAt", null);
+            if (savedAt != null) return savedAt;
+            long timestamp = entry.optLong("timestamp", -1);
             if (timestamp <= 0) return "-";
             return new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(new Date(timestamp));
         } catch (Exception e) {

@@ -582,6 +582,39 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         return signal;
     }
 
+    private float[][][] interpolateRrToSyntheticPPG(ArrayList<Double> rr) {
+        float[][][] signal = new float[1][320][1];
+        if (rr == null || rr.size() < 2) return signal;
+
+        double[] cumTime = new double[rr.size() + 1];
+        cumTime[0] = 0;
+        for (int i = 0; i < rr.size(); i++) {
+            cumTime[i + 1] = cumTime[i] + rr.get(i);
+        }
+
+        double totalTime = cumTime[cumTime.length - 1];
+        if (totalTime == 0) return signal;
+
+        double step = totalTime / 320.0;
+        Log.d("SYNTHETIC_PPG", "Sentetik PPG uretildi: step=" + step + "ms");
+
+        for (int i = 0; i < 320; i++) {
+            double t = i * step;
+            double val = 0;
+            for (int j = 0; j < rr.size(); j++) {
+                double rrDuration = rr.get(j);
+                double peakTime = cumTime[j] + 0.35 * rrDuration;
+                double sigma = 0.15 * rrDuration;
+                if (sigma < 0.0001) continue;
+                double diff = t - peakTime;
+                val += Math.exp(-0.5 * (diff / sigma) * (diff / sigma));
+            }
+            signal[0][i][0] = (float) val;
+        }
+
+        return signal;
+    }
+
 
     public float[] extractEmbeddingFromRr() {
         ArrayList<Double> rrSnapshot;
@@ -593,16 +626,45 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             rrSnapshot = new ArrayList<>(rrBuffer);
         }
         // filterRrNoise threshold Yekta Hoca ile netlesecek - gecici devre disi
+        // Alternatif: interpolateRrToSyntheticPPG(rrSnapshot) — Yekta Hoca onayı bekleniyor
         float[][][] input = interpolateRrToSignal(rrSnapshot);
+        float[][][] syntheticInput = interpolateRrToSyntheticPPG(rrSnapshot);
+        Log.d("SYNTHETIC_PPG", "Sentetik PPG uretildi, boyut: " + syntheticInput[0].length);
         float[][] output = new float[1][16];
         try {
             tfliteInterpreter.run(input, output);
             Log.d("TFLITE", "Embedding cikarildi: " + Arrays.toString(output[0]));
+            logHrvMetrics(rrSnapshot);
             return output[0];
         } catch (Exception e) {
             Log.e("TFLITE", "Embedding hatasi: " + e.getMessage());
             return null;
         }
+    }
+
+    private void logHrvMetrics(ArrayList<Double> rr) {
+        if (rr == null || rr.size() < 2) return;
+
+        double sum = 0;
+        for (double v : rr) sum += v;
+        double mean = sum / rr.size();
+
+        double varSum = 0;
+        for (double v : rr) varSum += (v - mean) * (v - mean);
+        double sdnn = Math.sqrt(varSum / rr.size());
+
+        double diffSqSum = 0;
+        int pnn50Count = 0;
+        int diffCount = rr.size() - 1;
+        for (int i = 1; i < rr.size(); i++) {
+            double diff = rr.get(i) - rr.get(i - 1);
+            diffSqSum += diff * diff;
+            if (Math.abs(diff) > 50) pnn50Count++;
+        }
+        double rmssd = Math.sqrt(diffSqSum / diffCount);
+        double pnn50 = (pnn50Count / (double) diffCount) * 100.0;
+
+        Log.d("HRV_METRICS", "SDNN=" + sdnn + "ms | RMSSD=" + rmssd + "ms | pNN50=" + pnn50 + "%");
     }
 
     public void saveTemplate(String userName, float[] embedding) {
@@ -621,7 +683,9 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             for (float v : embedding) arr.put(v);
             org.json.JSONObject entry = new org.json.JSONObject();
             entry.put("embedding", arr);
-            entry.put("timestamp", System.currentTimeMillis());
+            String savedAt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    .format(new java.util.Date());
+            entry.put("savedAt", savedAt);
             templates.put(userName, entry);
             java.io.FileWriter fw = new java.io.FileWriter(file);
             fw.write(templates.toString());
