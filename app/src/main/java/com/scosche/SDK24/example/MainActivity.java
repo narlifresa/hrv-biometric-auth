@@ -624,31 +624,10 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             rrSnapshot = new ArrayList<>(rrBuffer);
         }
         float[][][] input = interpolateRrToSignal(rrSnapshot);
-        float[][][] syntheticInput = interpolateRrToSyntheticPPG(rrSnapshot);
-        Log.d("SYNTHETIC_PPG", "Sentetik PPG uretildi, boyut: " + syntheticInput[0].length);
         float[][] output = new float[1][16];
         try {
             tfliteInterpreter.run(input, output);
             Log.d("TFLITE", "Embedding cikarildi: " + Arrays.toString(output[0]));
-
-            try {
-                float[][] syntheticOutput = new float[1][16];
-                tfliteInterpreter.run(syntheticInput, syntheticOutput);
-
-                // Template ile similarity hesapla
-                float[] template = loadTemplate(currentAuthUser);
-                if (template != null) {
-                    float synSim = cosineSimilarity(syntheticOutput[0], template);
-                    float rrSim = cosineSimilarity(output[0], template);
-                    Log.d("SYNTHETIC_TEST", "RR similarity: " + rrSim +
-                            " | Sentetik PPG similarity: " + synSim +
-                            " | Fark: " + (synSim - rrSim));
-                }
-                Log.d("SYNTHETIC_TEST", "Sentetik embedding: " + Arrays.toString(syntheticOutput[0]));
-            } catch (Exception e) {
-                Log.e("SYNTHETIC_TEST", "Hata: " + e.getMessage());
-            }
-
             logHrvMetrics(rrSnapshot);
             return output[0];
         } catch (Exception e) {
