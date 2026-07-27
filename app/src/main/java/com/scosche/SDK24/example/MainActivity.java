@@ -221,35 +221,33 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         return closest;
     }
 
-    @SuppressWarnings("unused")
-    private ArrayList<Double> filterRrNoise(ArrayList<Double> rr) {
-        if (rr == null || rr.size() < 3) return rr;
-
+    private ArrayList<Double> filterRrNoise(List<Double> rr) {
         ArrayList<Double> filtered = new ArrayList<>();
-        int window = 5;          // Yekta Hoca: local average pencere boyutu
-        double threshold = 100;  // Gecici: Yekta Hoca Cuma'da netlestirecek (ms mi, % mi, BPM mi?)
+        int window = 5;
+        double threshold = 0.20; // %20 sapma — Yekta Hoca eşik=20 demişti
 
         for (int i = 0; i < rr.size(); i++) {
             int start = Math.max(0, i - window / 2);
-            int end   = Math.min(rr.size(), start + window);
-            if (end - start < window) start = Math.max(0, end - window);
-
+            int end = Math.min(rr.size(), i + window / 2 + 1);
             double sum = 0;
             int count = 0;
             for (int j = start; j < end; j++) {
                 if (j != i) { sum += rr.get(j); count++; }
             }
-            if (count == 0) { filtered.add(rr.get(i)); continue; }
+            double localAvg = count > 0 ? sum / count : rr.get(i);
+            double deviation = Math.abs(rr.get(i) - localAvg) / localAvg;
 
-            double localAvg = sum / count;
-            if (Math.abs(rr.get(i) - localAvg) <= threshold) {
+            if (deviation <= threshold) {
                 filtered.add(rr.get(i));
             } else {
-                Log.d("RR_FILTER", "Noise atildi: " + rr.get(i) +
-                        " ms | localAvg=" + String.format(Locale.getDefault(), "%.1f", localAvg) + " ms");
+                Log.d("RR_FILTER", "Noise atildi: " +
+                        String.format(Locale.getDefault(), "%.1f", rr.get(i)) + "ms" +
+                        " | localAvg=" + String.format(Locale.getDefault(), "%.1f", localAvg) + "ms" +
+                        " | sapma=%" + String.format(Locale.getDefault(), "%.1f", deviation * 100));
             }
         }
-        Log.d("RR_FILTER", "Orijinal: " + rr.size() + " -> Filtrelenmis: " + filtered.size());
+        Log.d("RR_FILTER", "Orijinal: " + rr.size() +
+                " → Filtrelenmis: " + filtered.size());
         return filtered;
     }
 
@@ -625,8 +623,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             }
             rrSnapshot = new ArrayList<>(rrBuffer);
         }
-        // filterRrNoise threshold Yekta Hoca ile netlesecek - gecici devre disi
-        // Alternatif: interpolateRrToSyntheticPPG(rrSnapshot) — Yekta Hoca onayı bekleniyor
         float[][][] input = interpolateRrToSignal(rrSnapshot);
         float[][][] syntheticInput = interpolateRrToSyntheticPPG(rrSnapshot);
         Log.d("SYNTHETIC_PPG", "Sentetik PPG uretildi, boyut: " + syntheticInput[0].length);
