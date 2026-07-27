@@ -691,8 +691,27 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             fw.write(templates.toString());
             fw.close();
             Log.d("TEMPLATE", userName + " kaydedildi");
+
+            StringBuilder sb2 = new StringBuilder();
+            sb2.append("=== TEMPLATE ===\n");
+            sb2.append("Tarih:     ").append(savedAt).append("\n");
+            sb2.append("Kisi:      ").append(userName).append(" (").append(currentSubjectId).append(")\n");
+            sb2.append("Aktivite:  ").append(currentActivity).append("\n");
+            sb2.append("Embedding: ").append(Arrays.toString(embedding)).append("\n\n");
+            appendToAuthLog(sb2.toString());
         } catch (Exception e) {
             Log.e("TEMPLATE", "Kayit hatasi: " + e.getMessage());
+        }
+    }
+
+    private void appendToAuthLog(String content) {
+        try {
+            File logFile = new File(getFilesDir(), "auth_log.txt");
+            java.io.FileWriter logWriter = new java.io.FileWriter(logFile, true);
+            logWriter.write(content);
+            logWriter.close();
+        } catch (Exception e) {
+            Log.e("AUTH_LOG", "Log yazma hatasi: " + e.getMessage());
         }
     }
 
@@ -734,6 +753,19 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         if (current == null) return -1f;
         float similarity = cosineSimilarity(stored, current);
         Log.d("AUTH", userName + " benzerlik: " + similarity);
+
+        boolean accepted = similarity >= 0.75f;
+        String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                .format(new java.util.Date());
+        StringBuilder sb = new StringBuilder();
+        sb.append(accepted ? "=== AUTH ✓ ACCEPTED ===\n" : "=== AUTH ✗ REJECTED ===\n");
+        sb.append("Tarih:     ").append(timestamp).append("\n");
+        sb.append("Kisi:      ").append(userName).append(" (").append(currentSubjectId).append(")\n");
+        sb.append("Template:  ").append(userName).append("\n");
+        sb.append("Similarity: ").append(String.format(Locale.getDefault(), "%.4f", similarity)).append("\n");
+        sb.append("Embedding: ").append(Arrays.toString(current)).append("\n\n");
+        appendToAuthLog(sb.toString());
+
         return similarity;
     }
 
