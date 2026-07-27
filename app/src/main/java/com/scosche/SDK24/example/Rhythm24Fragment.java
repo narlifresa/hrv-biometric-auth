@@ -193,7 +193,7 @@ public class Rhythm24Fragment extends Fragment {
                 Toast.makeText(getContext(), "Lutfen kullanici adi girin.", Toast.LENGTH_SHORT).show();
                 return;
             }
-            float[] embedding = ((MainActivity) getActivity()).extractEmbeddingFromRr();
+            float[] embedding = ((MainActivity) getActivity()).extractEmbeddingFromRr(userName);
             if (embedding == null) {
                 Toast.makeText(getContext(), "Yeterli RR verisi yok.", Toast.LENGTH_SHORT).show();
                 return;

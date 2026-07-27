@@ -614,7 +614,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
 
-    public float[] extractEmbeddingFromRr() {
+    public float[] extractEmbeddingFromRr(String currentAuthUser) {
         ArrayList<Double> rrSnapshot;
         synchronized (rrBuffer) {
             if (tfliteInterpreter == null || rrBuffer.size() < 5) {
@@ -630,6 +630,25 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         try {
             tfliteInterpreter.run(input, output);
             Log.d("TFLITE", "Embedding cikarildi: " + Arrays.toString(output[0]));
+
+            try {
+                float[][] syntheticOutput = new float[1][16];
+                tfliteInterpreter.run(syntheticInput, syntheticOutput);
+
+                // Template ile similarity hesapla
+                float[] template = loadTemplate(currentAuthUser);
+                if (template != null) {
+                    float synSim = cosineSimilarity(syntheticOutput[0], template);
+                    float rrSim = cosineSimilarity(output[0], template);
+                    Log.d("SYNTHETIC_TEST", "RR similarity: " + rrSim +
+                            " | Sentetik PPG similarity: " + synSim +
+                            " | Fark: " + (synSim - rrSim));
+                }
+                Log.d("SYNTHETIC_TEST", "Sentetik embedding: " + Arrays.toString(syntheticOutput[0]));
+            } catch (Exception e) {
+                Log.e("SYNTHETIC_TEST", "Hata: " + e.getMessage());
+            }
+
             logHrvMetrics(rrSnapshot);
             return output[0];
         } catch (Exception e) {
@@ -745,7 +764,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             Log.w("AUTH", userName + " icin template bulunamadi");
             return -1f;
         }
-        float[] current = extractEmbeddingFromRr();
+        float[] current = extractEmbeddingFromRr(userName);
         if (current == null) return -1f;
         float similarity = cosineSimilarity(stored, current);
         Log.d("AUTH", userName + " benzerlik: " + similarity);
