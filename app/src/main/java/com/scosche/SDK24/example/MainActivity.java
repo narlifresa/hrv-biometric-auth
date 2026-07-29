@@ -194,7 +194,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     private boolean isBpmNoise(int newBpm) {
-        return false;
+        return newBpm < 30 || newBpm > 220;
     }
 
     private double getClosestRr(long timestamp, int bpm) {
@@ -553,28 +553,23 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             raw[i] = (float) val;
         }
 
-        // ESKİ - Winsorization: %5 ve %95
-        // YENİ - sabit fizyolojik sınırlar (40-150 BPM arası):
-        float lowerFixed = 0.40f;  // 150 BPM
-        float upperFixed = 1.50f;  // 40 BPM
+        // Winsorization: %5 ve %95
+        float[] sorted = raw.clone();
+        Arrays.sort(sorted);
+        float lower = sorted[(int) (sorted.length * 0.05f)];
+        float upper = sorted[(int) (sorted.length * 0.95f)];
         for (int i = 0; i < 320; i++) {
-            raw[i] = Math.max(lowerFixed, Math.min(upperFixed, raw[i]));
+            raw[i] = Math.max(lower, Math.min(upper, raw[i]));
         }
 
-        float sum = 0;
-        for (float v : raw) sum += v;
-        float rrMean = sum / raw.length;
-
-        float varSum = 0;
-        for (float v : raw) varSum += (v - rrMean) * (v - rrMean);
-        float rrStd = (float) Math.sqrt(varSum / raw.length);
-        if (rrStd < 0.001f) rrStd = 0.001f;
+        final float SCALER_MEAN = 0.26859059f;
+        final float SCALER_STD = 33.30758689f;
 
         Log.d("INTERPOLATE", "Normalizasyon - mean: " +
-                String.format(Locale.getDefault(), "%.4f", rrMean));
+                String.format(Locale.getDefault(), "%.4f", SCALER_MEAN));
 
         for (int i = 0; i < 320; i++) {
-            signal[0][i][0] = (raw[i] - rrMean) / rrMean;
+            signal[0][i][0] = (raw[i] - SCALER_MEAN) / SCALER_STD;
         }
 
         return signal;
