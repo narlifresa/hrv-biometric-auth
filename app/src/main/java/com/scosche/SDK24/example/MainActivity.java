@@ -732,27 +732,61 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         }
     }
 
-    public float authenticate(String userName) {
-        float[] stored = loadTemplate(userName);
+    private org.json.JSONObject readJsonFile(String fileName) {
+        try {
+            File file = new File(getFilesDir(), fileName);
+            if (!file.exists()) return new org.json.JSONObject();
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(file));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line);
+            br.close();
+            return new org.json.JSONObject(sb.toString());
+        } catch (Exception e) {
+            Log.e("TEMPLATE", "Okuma hatasi (" + fileName + "): " + e.getMessage());
+            return new org.json.JSONObject();
+        }
+    }
+
+    public List<String> getTemplateUsers() {
+        List<String> users = new ArrayList<>();
+        try {
+            org.json.JSONObject subjects = readJsonFile("subjects.json");
+            org.json.JSONObject templates = readJsonFile("templates.json");
+            java.util.Iterator<String> keys = templates.keys();
+            while (keys.hasNext()) {
+                String userName = keys.next();
+                if (subjects.has(userName)) users.add(userName);
+            }
+        } catch (Exception e) {
+            Log.e("TEMPLATE", "Liste alinamadi: " + e.getMessage());
+        }
+        return users;
+    }
+
+    public float authenticate(String claimPerson, String probePerson) {
+        float[] stored = loadTemplate(claimPerson);
         if (stored == null) {
-            Log.w("AUTH", userName + " icin template bulunamadi");
+            Log.w("AUTH", claimPerson + " icin template bulunamadi");
             return -1f;
         }
-        float[] current = extractEmbeddingFromRr(userName);
+        float[] current = extractEmbeddingFromRr(claimPerson);
         if (current == null) return -1f;
         float similarity = cosineSimilarity(stored, current);
-        Log.d("AUTH", userName + " benzerlik: " + similarity);
+        boolean isGenuine = claimPerson.equals(probePerson);
+        Log.d("AUTH", probePerson + " -> " + claimPerson + " benzerlik: " + similarity);
 
         boolean accepted = similarity >= 0.75f;
         String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
                 .format(new java.util.Date());
         StringBuilder sb = new StringBuilder();
         sb.append(accepted ? "=== AUTH ✓ ACCEPTED ===\n" : "=== AUTH ✗ REJECTED ===\n");
-        sb.append("Tarih:     ").append(timestamp).append("\n");
-        sb.append("Kisi:      ").append(userName).append(" (").append(currentSubjectId).append(")\n");
-        sb.append("Template:  ").append(userName).append("\n");
+        sb.append("Tarih:      ").append(timestamp).append("\n");
+        sb.append("Probe:      ").append(probePerson).append(" (").append(currentSubjectId).append(")\n");
+        sb.append("Claim:      ").append(claimPerson).append("\n");
+        sb.append("Genuine:    ").append(isGenuine ? "EVET" : "HAYIR").append("\n");
         sb.append("Similarity: ").append(String.format(Locale.getDefault(), "%.4f", similarity)).append("\n");
-        sb.append("Embedding: ").append(Arrays.toString(current)).append("\n\n");
+        sb.append("Embedding:  ").append(Arrays.toString(current)).append("\n\n");
         appendToAuthLog(sb.toString());
 
         return similarity;

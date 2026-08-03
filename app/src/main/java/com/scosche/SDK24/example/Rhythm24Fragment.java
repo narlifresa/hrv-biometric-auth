@@ -3,6 +3,8 @@ package com.scosche.SDK24.example;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -24,6 +26,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 public class Rhythm24Fragment extends Fragment {
@@ -63,6 +66,12 @@ public class Rhythm24Fragment extends Fragment {
     private FileWriter csvWriter;
     private final Handler timerHandler = new Handler(Looper.getMainLooper());
     private Runnable timerRunnable;
+    private final Runnable userSwitchCooldownRunnable = () -> {
+        if (isRecording) return;
+        saveTemplateButton.setEnabled(true);
+        authenticateButton.setEnabled(true);
+        recordingStatusField.setText("Hazir.");
+    };
 
     public Rhythm24Fragment() {}
 
@@ -204,8 +213,8 @@ public class Rhythm24Fragment extends Fragment {
         });
 
         authenticateButton.setOnClickListener(v -> {
-            String userName = userNameField.getText().toString().trim();
-            if (userName.isEmpty()) {
+            String probePerson = userNameField.getText().toString().trim();
+            if (probePerson.isEmpty()) {
                 Toast.makeText(getContext(), "Lutfen kullanici adi girin.", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -217,17 +226,51 @@ public class Rhythm24Fragment extends Fragment {
                         Toast.LENGTH_SHORT).show();
                 return;
             }
-            float similarity = ((MainActivity) getActivity()).authenticate(userName);
-            ((MainActivity) getActivity()).getRrBuffer().clear();
-            Log.d("RR_BUFFER", "Authentication yapildi, rrBuffer temizlendi.");
-            boolean result = similarity >= 0.75f;
-            String simStr = similarity >= 0 ? String.format(Locale.getDefault(), "%.4f", similarity) : "hata";
-            if (result) {
-                recordingStatusField.setText("Dogrulandi: " + userName + " | " + simStr);
-                Toast.makeText(getContext(), userName + " dogrulandi! (" + simStr + ")", Toast.LENGTH_SHORT).show();
-            } else {
-                recordingStatusField.setText("Dogrulanamadi: " + userName + " | " + simStr);
-                Toast.makeText(getContext(), userName + " dogrulanamadi. (" + simStr + ")", Toast.LENGTH_SHORT).show();
+
+            List<String> templateUsers = ((MainActivity) getActivity()).getTemplateUsers();
+            if (templateUsers.isEmpty()) {
+                Toast.makeText(getContext(), "Kayitli template yok", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            String[] userArray = templateUsers.toArray(new String[0]);
+            new android.app.AlertDialog.Builder(getContext())
+                    .setTitle("Kimin template'i?")
+                    .setItems(userArray, (dialog, which) -> {
+                        String claimPerson = userArray[which];
+                        float similarity = ((MainActivity) getActivity()).authenticate(claimPerson, probePerson);
+                        ((MainActivity) getActivity()).getRrBuffer().clear();
+                        Log.d("RR_BUFFER", "Authentication yapildi, rrBuffer temizlendi.");
+
+                        boolean isGenuine = claimPerson.equals(probePerson);
+                        boolean accepted = similarity >= 0.75f;
+                        String simStr = similarity >= 0 ? String.format(Locale.getDefault(), "%.4f", similarity) : "hata";
+                        String resultText = (accepted ? "✓ Kabul" : "✗ Reddedildi")
+                                + " | " + probePerson + " → " + claimPerson
+                                + " | " + simStr
+                                + (isGenuine ? " [genuine]" : " [impostor]");
+                        recordingStatusField.setText(resultText);
+                        Toast.makeText(getContext(), resultText, Toast.LENGTH_SHORT).show();
+                    })
+                    .show();
+        });
+
+        userNameField.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                ((MainActivity) getActivity()).getRrBuffer().clear();
+                Log.d("RR_BUFFER", "Kullanici adi degisti, rrBuffer temizlendi.");
+                saveTemplateButton.setEnabled(false);
+                authenticateButton.setEnabled(false);
+                recordingStatusField.setText("Kullanici degisti — buffer temizlendi, 30sn bekleyin.");
+                timerHandler.removeCallbacks(userSwitchCooldownRunnable);
+                timerHandler.postDelayed(userSwitchCooldownRunnable, 30000);
             }
         });
 
