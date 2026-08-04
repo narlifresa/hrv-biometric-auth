@@ -24,13 +24,7 @@ import java.io.FileOutputStream;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
-import org.tensorflow.lite.Interpreter;
-import org.tensorflow.lite.flex.FlexDelegate;
 import java.io.IOException;
-import java.io.FileInputStream;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
-import android.content.res.AssetFileDescriptor;
 import java.io.FileWriter;
 import java.util.Collections;
 import java.util.Locale;
@@ -41,7 +35,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private String fileName;
     private byte[] data;
     private boolean isRhythm24;
-    private Interpreter tfliteInterpreter;
     private BluetoothGatt bleGatt;
     private String currentSubjectId = "";
     private int currentSessionId = 1;
@@ -63,12 +56,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         Log.d("MainActivity", "onCreate: Baslatildi");
         checkPermissions();
         sdk = new ScoscheSDK24(this);
-        try {
-            tfliteInterpreter = new Interpreter(loadModelFile(), getTfliteOptions());
-            Log.d("TFLITE", "Model basariyla yuklendi");
-        } catch (Exception e) {
-            Log.e("TFLITE", "Model yuklenemedi: " + e.getMessage());
-        }
         Log.d("MainActivity", "onCreate: SDK baslatildi");
         try {
             Fragment fragment = ScannedDeviceFragment.class.getDeclaredConstructor().newInstance();
@@ -122,7 +109,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                     rrBuffer.clear();
                     rrTimestampBuffer.clear();
                     Log.d("HRV", "HRV modu aktif edildi");
-                    runTfliteTest();
                     runOnUiThread(() -> {
                         Fragment f = getSupportFragmentManager().findFragmentByTag("Rhythm24Fragment");
                         if (f != null) ((Rhythm24Fragment) f).startStabilizationCountdown();
@@ -390,48 +376,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         }
     }
 
-    private MappedByteBuffer loadModelFile() throws IOException {
-        try (AssetFileDescriptor fileDescriptor = getAssets().openFd("ppg_biometric_embedding.tflite");
-             FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor())) {
-            FileChannel fileChannel = inputStream.getChannel();
-            return fileChannel.map(FileChannel.MapMode.READ_ONLY, fileDescriptor.getStartOffset(), fileDescriptor.getDeclaredLength());
-        }
-    }
-
-    private Interpreter.Options getTfliteOptions() {
-        Interpreter.Options options = new Interpreter.Options();
-        options.addDelegate(new FlexDelegate());
-        return options;
-    }
-
-    private void runTfliteTest() {
-        if (tfliteInterpreter == null) {
-            Log.e("TFLITE", "Model yuklu degil");
-            return;
-        }
-
-        float[][][] input1 = new float[1][320][1];
-        float[][][] input2 = new float[1][320][1];
-        for (int i = 0; i < 320; i++) {
-            input1[0][i][0] = 0.5f;
-            input2[0][i][0] = 0.6f;
-        }
-
-        float[][] output1 = new float[1][16];
-        float[][] output2 = new float[1][16];
-
-        try {
-            tfliteInterpreter.run(input1, output1);
-            tfliteInterpreter.run(input2, output2);
-            float similarity = cosineSimilarity(output1[0], output2[0]);
-            Log.d("TFLITE", "Embedding1: " + Arrays.toString(output1[0]));
-            Log.d("TFLITE", "Embedding2: " + Arrays.toString(output2[0]));
-            Log.d("TFLITE", "Cosine Similarity: " + similarity);
-        } catch (Exception e) {
-            Log.e("TFLITE", "Inference hatasi: " + e.getMessage());
-        }
-    }
-
     private void connectNativeBle(android.bluetooth.BluetoothDevice btDevice) {
         closeBle();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -609,28 +553,6 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
 
-    public float[] extractEmbeddingFromRr(String currentAuthUser) {
-        ArrayList<Double> rrSnapshot;
-        synchronized (rrBuffer) {
-            if (tfliteInterpreter == null || rrBuffer.size() < 5) {
-                Log.e("TFLITE", "Model yuklu degil veya yeterli RR yok");
-                return null;
-            }
-            rrSnapshot = new ArrayList<>(rrBuffer);
-        }
-        float[][][] input = interpolateRrToSignal(rrSnapshot);
-        float[][] output = new float[1][16];
-        try {
-            tfliteInterpreter.run(input, output);
-            Log.d("TFLITE", "Embedding cikarildi: " + Arrays.toString(output[0]));
-            logHrvMetrics(rrSnapshot);
-            return output[0];
-        } catch (Exception e) {
-            Log.e("TFLITE", "Embedding hatasi: " + e.getMessage());
-            return null;
-        }
-    }
-
     private void logHrvMetrics(ArrayList<Double> rr) {
         if (rr == null || rr.size() < 2) return;
 
@@ -657,40 +579,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     public void saveTemplate(String userName, float[] embedding) {
-        try {
-            File file = new File(getFilesDir(), "templates.json");
-            org.json.JSONObject templates = new org.json.JSONObject();
-            if (file.exists()) {
-                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(file));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = br.readLine()) != null) sb.append(line);
-                br.close();
-                templates = new org.json.JSONObject(sb.toString());
-            }
-            org.json.JSONArray arr = new org.json.JSONArray();
-            for (float v : embedding) arr.put(v);
-            org.json.JSONObject entry = new org.json.JSONObject();
-            entry.put("embedding", arr);
-            String savedAt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                    .format(new java.util.Date());
-            entry.put("savedAt", savedAt);
-            templates.put(userName, entry);
-            java.io.FileWriter fw = new java.io.FileWriter(file);
-            fw.write(templates.toString());
-            fw.close();
-            Log.d("TEMPLATE", userName + " kaydedildi");
-
-            StringBuilder sb2 = new StringBuilder();
-            sb2.append("=== TEMPLATE ===\n");
-            sb2.append("Tarih:     ").append(savedAt).append("\n");
-            sb2.append("Kisi:      ").append(userName).append(" (").append(currentSubjectId).append(")\n");
-            sb2.append("Aktivite:  ").append(currentActivity).append("\n");
-            sb2.append("Embedding: ").append(Arrays.toString(embedding)).append("\n\n");
-            appendToAuthLog(sb2.toString());
-        } catch (Exception e) {
-            Log.e("TEMPLATE", "Kayit hatasi: " + e.getMessage());
-        }
+        Toast.makeText(this, "Model henüz hazır değil", Toast.LENGTH_LONG).show();
     }
 
     private void appendToAuthLog(String content) {
@@ -765,31 +654,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     public float authenticate(String claimPerson, String probePerson) {
-        float[] stored = loadTemplate(claimPerson);
-        if (stored == null) {
-            Log.w("AUTH", claimPerson + " icin template bulunamadi");
-            return -1f;
-        }
-        float[] current = extractEmbeddingFromRr(claimPerson);
-        if (current == null) return -1f;
-        float similarity = cosineSimilarity(stored, current);
-        boolean isGenuine = claimPerson.equals(probePerson);
-        Log.d("AUTH", probePerson + " -> " + claimPerson + " benzerlik: " + similarity);
-
-        boolean accepted = similarity >= 0.75f;
-        String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                .format(new java.util.Date());
-        StringBuilder sb = new StringBuilder();
-        sb.append(accepted ? "=== AUTH ✓ ACCEPTED ===\n" : "=== AUTH ✗ REJECTED ===\n");
-        sb.append("Tarih:      ").append(timestamp).append("\n");
-        sb.append("Probe:      ").append(probePerson).append(" (").append(currentSubjectId).append(")\n");
-        sb.append("Claim:      ").append(claimPerson).append("\n");
-        sb.append("Genuine:    ").append(isGenuine ? "EVET" : "HAYIR").append("\n");
-        sb.append("Similarity: ").append(String.format(Locale.getDefault(), "%.4f", similarity)).append("\n");
-        sb.append("Embedding:  ").append(Arrays.toString(current)).append("\n\n");
-        appendToAuthLog(sb.toString());
-
-        return similarity;
+        Log.d("AUTH", "Model henüz entegre edilmedi");
+        return -1f;
     }
 
     public String getOrCreateSubjectId(String userName) {
