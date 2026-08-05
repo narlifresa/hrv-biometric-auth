@@ -43,6 +43,7 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private static final UUID CLIENT_CONFIG_UUID  = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private final ArrayList<long[]> bpmBuffer = new ArrayList<>();
     private final List<Double> rrBuffer = Collections.synchronizedList(new ArrayList<>());
+    private List<Double> sessionRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<double[]> rrTimestampBuffer = Collections.synchronizedList(new ArrayList<>());
     private String currentActivity = "rest";
     public ScoscheSDK24 getSdk() {
@@ -157,8 +158,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         bpmBuffer.add(new long[]{timestamp, bpmValue});
         if (csvWriter != null) {
             try {
-                double matchedRr = getClosestRr(timestamp, bpmValue);
-                csvWriter.write(currentSubjectId + "," + currentSessionId + "," + currentActivity + "," + timestamp + "," + bpmValue + "," + (matchedRr > 0 ? matchedRr : "") + "\n");                csvWriter.flush();
+                csvWriter.write(currentSubjectId + "," + currentSessionId + "," + currentActivity + "," + timestamp + "," + bpmValue + "," + "\n");
+                csvWriter.flush();
             } catch (IOException e) {
                 Log.e("CSV", "Yazma hatasi: " + e.getMessage());
             }
@@ -453,10 +454,24 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
                 double rrMs = (rrRaw / 1024.0) * 1000.0;
                 Log.d("RR", "RR Interval: " + rrMs + " ms | HR: " + heartRate);
                 rrBuffer.add(rrMs);
+                sessionRrBuffer.add(rrMs);
                 Log.d("RR_BUFFER", "RR tampon boyutu: " + rrBuffer.size());
                 synchronized (rrTimestampBuffer) {
                     rrTimestampBuffer.add(new double[]{System.currentTimeMillis(), rrMs});
                     if (rrTimestampBuffer.size() > 20) rrTimestampBuffer.remove(0);
+                }
+                if (csvWriter != null && hasRR) {
+                    try {
+                        csvWriter.write(currentSubjectId + "," +
+                            currentSessionId + "," +
+                            currentActivity + "," +
+                            System.currentTimeMillis() + "," +
+                            heartRate + "," +
+                            rrMs + "\n");
+                        csvWriter.flush();
+                    } catch (IOException e) {
+                        Log.e("CSV", "RR yazma hatasi: " + e.getMessage());
+                    }
                 }
             }
         } else {
@@ -465,6 +480,12 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
     public List<Double> getRrBuffer() {
         return rrBuffer;
+    }
+    public List<Double> getSessionRrBuffer() {
+        return sessionRrBuffer;
+    }
+    public void resetSessionRrBuffer() {
+        sessionRrBuffer = Collections.synchronizedList(new ArrayList<>());
     }
     private float[][][] interpolateRrToSignal(ArrayList<Double> rr) {
         float[][][] signal = new float[1][320][1];

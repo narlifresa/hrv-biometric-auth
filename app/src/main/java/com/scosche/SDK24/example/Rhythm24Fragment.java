@@ -197,17 +197,35 @@ public class Rhythm24Fragment extends Fragment {
         stopRecordingButton.setOnClickListener(v -> stopRecording());
 
         saveTemplateButton.setOnClickListener(v -> {
+            android.widget.Toast.makeText(getContext(),
+                "TEMPLATE BUTONA BASILDI",
+                android.widget.Toast.LENGTH_LONG).show();
+            Log.d("TEMPLATE_DEBUG", "adim 0: butona basildi");
             String userName = userNameField.getText().toString().trim();
             if (userName.isEmpty()) {
                 Toast.makeText(getContext(), "Lutfen kullanici adi girin.", Toast.LENGTH_SHORT).show();
                 return;
             }
-            float[] embedding = ((MainActivity) getActivity()).extractEmbeddingFromRr(userName);
-            if (embedding == null) {
-                Toast.makeText(getContext(), "Yeterli RR verisi yok.", Toast.LENGTH_SHORT).show();
+            Log.d("TEMPLATE_DEBUG", "adim 1: sessionRrBuffer aliniyor");
+            List<Double> rrList = ((MainActivity) getActivity()).getSessionRrBuffer();
+
+            Log.d("TEMPLATE_DEBUG", "adim 2: double[] donusumu, rrList.size()=" + rrList.size());
+            double[] rrArray = new double[rrList.size()];
+            for (int i = 0; i < rrArray.length; i++) {
+                rrArray[i] = rrList.get(i);
+            }
+
+            Log.d("TEMPLATE_DEBUG", "adim 3: HrvFeatureExtractor.extract cagriliyor");
+            float[] features = HrvFeatureExtractor.extract(rrArray);
+
+            Log.d("TEMPLATE_DEBUG", "adim 4: null kontrolu, features=" + (features == null ? "null" : "dolu"));
+            if (features == null) {
+                Toast.makeText(getContext(), "Yeterli RR verisi yok", Toast.LENGTH_SHORT).show();
                 return;
             }
-            ((MainActivity) getActivity()).saveTemplate(userName, embedding);
+
+            Log.d("TEMPLATE_DEBUG", "adim 5: saveTemplate cagriliyor");
+            ((MainActivity) getActivity()).saveTemplate(userName, features);
             Toast.makeText(getContext(), userName + " template kaydedildi.", Toast.LENGTH_SHORT).show();
             recordingStatusField.setText("Template kaydedildi: " + userName);
         });
@@ -477,6 +495,7 @@ public class Rhythm24Fragment extends Fragment {
             authenticateButton.setEnabled(false);
 
             ((MainActivity) getActivity()).getRrBuffer().clear();
+            ((MainActivity) getActivity()).resetSessionRrBuffer();
 
             timerRunnable = new Runnable() {
                 @Override

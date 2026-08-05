@@ -1,5 +1,7 @@
 package com.scosche.SDK24.example;
 
+import android.util.Log;
+
 import java.util.Arrays;
 
 public class HrvFeatureExtractor {
@@ -50,6 +52,14 @@ public class HrvFeatureExtractor {
         features[13] = (float) sampEn;
         features[14] = (float) shanEn;
         features[15] = (float) hf;
+
+        Log.d("HRV_FEATURES", "MeanNN=" + features[0] +
+                " | SDNN=" + features[1] +
+                " | RMSSD=" + features[2] +
+                " | SD1=" + features[9] +
+                " | SD2=" + features[10] +
+                " | HF=" + features[15]);
+
         return features;
     }
 
