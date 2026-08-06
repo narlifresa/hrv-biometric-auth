@@ -24,7 +24,12 @@ import java.io.FileOutputStream;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
+import org.tensorflow.lite.Interpreter;
 import java.io.IOException;
+import java.io.FileInputStream;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import android.content.res.AssetFileDescriptor;
 import java.io.FileWriter;
 import java.util.Collections;
 import java.util.Locale;
@@ -46,6 +51,9 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     private List<Double> sessionRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<double[]> rrTimestampBuffer = Collections.synchronizedList(new ArrayList<>());
     private String currentActivity = "rest";
+    private float[] scalerMean = new float[16];
+    private float[] scalerStd = new float[16];
+    private Interpreter tfliteInterpreter = null;
     public ScoscheSDK24 getSdk() {
         return sdk;
     }
@@ -66,6 +74,8 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
             Log.e("MainActivity", "Fragment olusturulamadi: " + e.getMessage());
         }
         sdk.startScan(this);
+        loadScaler();
+        loadTfliteModel();
     }
 
     private FileWriter csvWriter;
@@ -236,6 +246,87 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         Log.d("RR_FILTER", "Orijinal: " + rr.size() +
                 " → Filtrelenmis: " + filtered.size());
         return filtered;
+    }
+
+    private void loadScaler() {
+        try {
+            java.io.InputStream is = getAssets().open("scaler.json");
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(is));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line);
+            br.close();
+            org.json.JSONObject json = new org.json.JSONObject(sb.toString());
+            org.json.JSONArray meanArr = json.getJSONArray("mean");
+            org.json.JSONArray stdArr = json.getJSONArray("std");
+            for (int i = 0; i < scalerMean.length && i < meanArr.length(); i++) {
+                scalerMean[i] = (float) meanArr.getDouble(i);
+            }
+            for (int i = 0; i < scalerStd.length && i < stdArr.length(); i++) {
+                scalerStd[i] = (float) stdArr.getDouble(i);
+            }
+            Log.d("SCALER", "Scaler yuklendi");
+        } catch (Exception e) {
+            Log.e("SCALER", "Scaler yuklenemedi, varsayilan degerler kullaniliyor: " + e.getMessage());
+            Arrays.fill(scalerMean, 0f);
+            Arrays.fill(scalerStd, 1f);
+        }
+    }
+
+    private void loadTfliteModel() {
+        try {
+            boolean modelExists = false;
+            String[] assetFiles = getAssets().list("");
+            if (assetFiles != null) {
+                for (String name : assetFiles) {
+                    if ("encoder.tflite".equals(name)) {
+                        modelExists = true;
+                        break;
+                    }
+                }
+            }
+            if (!modelExists) {
+                Log.w("TFLITE", "encoder.tflite bulunamadi, model bekleniyor");
+                tfliteInterpreter = null;
+                return;
+            }
+            Interpreter.Options options = new Interpreter.Options();
+            try (AssetFileDescriptor fileDescriptor = getAssets().openFd("encoder.tflite");
+                 FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor())) {
+                FileChannel fileChannel = inputStream.getChannel();
+                MappedByteBuffer modelBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY,
+                        fileDescriptor.getStartOffset(), fileDescriptor.getDeclaredLength());
+                tfliteInterpreter = new Interpreter(modelBuffer, options);
+            }
+            Log.d("TFLITE", "Model yuklendi");
+        } catch (Exception e) {
+            Log.e("TFLITE", "Model yuklenemedi: " + e.getMessage());
+            tfliteInterpreter = null;
+        }
+    }
+
+    private float[] applyScaler(float[] features) {
+        for (int i = 0; i < features.length && i < scalerMean.length; i++) {
+            if (scalerStd[i] == 0) {
+                features[i] = 0;
+            } else {
+                features[i] = (features[i] - scalerMean[i]) / scalerStd[i];
+            }
+        }
+        return features;
+    }
+
+    private float[] extractEmbedding(float[] rawFeatures) {
+        float[] normalized = applyScaler(rawFeatures);
+        if (tfliteInterpreter == null) {
+            Log.w("TFLITE", "Model yok, raw feature kullaniliyor");
+            return normalized;
+        }
+        float[][] input = new float[1][16];
+        input[0] = normalized;
+        float[][] output = new float[1][16];
+        tfliteInterpreter.run(input, output);
+        return output[0];
     }
 
     private float cosineSimilarity(float[] vectorA, float[] vectorB) {
@@ -599,8 +690,42 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
         Log.d("HRV_METRICS", "SDNN=" + sdnn + "ms | RMSSD=" + rmssd + "ms | pNN50=" + pnn50 + "%");
     }
 
-    public void saveTemplate(String userName, float[] embedding) {
-        Toast.makeText(this, "Model henüz hazır değil", Toast.LENGTH_LONG).show();
+    public void saveTemplate(String userName, float[] rawFeatures) {
+        float[] embedding = extractEmbedding(rawFeatures);
+        try {
+            File file = new File(getFilesDir(), "templates.json");
+            org.json.JSONObject templates = new org.json.JSONObject();
+            if (file.exists()) {
+                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(file));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+                br.close();
+                templates = new org.json.JSONObject(sb.toString());
+            }
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (float v : embedding) arr.put(v);
+            org.json.JSONObject entry = new org.json.JSONObject();
+            entry.put("embedding", arr);
+            String savedAt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    .format(new java.util.Date());
+            entry.put("savedAt", savedAt);
+            templates.put(userName, entry);
+            java.io.FileWriter fw = new java.io.FileWriter(file);
+            fw.write(templates.toString());
+            fw.close();
+            Log.d("TEMPLATE", userName + " kaydedildi");
+
+            StringBuilder sb2 = new StringBuilder();
+            sb2.append("=== TEMPLATE ===\n");
+            sb2.append("Tarih:     ").append(savedAt).append("\n");
+            sb2.append("Kisi:      ").append(userName).append(" (").append(currentSubjectId).append(")\n");
+            sb2.append("Aktivite:  ").append(currentActivity).append("\n");
+            sb2.append("Embedding: ").append(Arrays.toString(embedding)).append("\n\n");
+            appendToAuthLog(sb2.toString());
+        } catch (Exception e) {
+            Log.e("TEMPLATE", "Kayit hatasi: " + e.getMessage());
+        }
     }
 
     private void appendToAuthLog(String content) {
@@ -675,8 +800,48 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     public float authenticate(String claimPerson, String probePerson) {
-        Log.d("AUTH", "Model henüz entegre edilmedi");
-        return -1f;
+        float[] stored = loadTemplate(claimPerson);
+        if (stored == null) {
+            Log.w("AUTH", claimPerson + " icin template bulunamadi");
+            return -1f;
+        }
+
+        ArrayList<Double> rrSnapshot;
+        synchronized (rrBuffer) {
+            rrSnapshot = new ArrayList<>(rrBuffer);
+        }
+        double[] rrArray = new double[rrSnapshot.size()];
+        for (int i = 0; i < rrArray.length; i++) {
+            rrArray[i] = rrSnapshot.get(i);
+        }
+
+        float[] rawFeatures = HrvFeatureExtractor.extract(rrArray);
+        if (rawFeatures == null) {
+            Log.w("AUTH", "Yeterli RR verisi yok");
+            return -1f;
+        }
+        float[] probeEmbedding = extractEmbedding(rawFeatures);
+
+        float similarity = cosineSimilarity(stored, probeEmbedding);
+        boolean isGenuine = claimPerson.equals(probePerson);
+        Log.d("AUTH", probePerson + " -> " + claimPerson + " benzerlik: " + similarity);
+
+        boolean accepted = similarity >= 0.75f;
+        String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                .format(new java.util.Date());
+        StringBuilder sb = new StringBuilder();
+        sb.append(accepted ? "=== AUTH ✓ ACCEPTED ===\n" : "=== AUTH ✗ REJECTED ===\n");
+        sb.append("Tarih:      ").append(timestamp).append("\n");
+        sb.append("Probe:      ").append(probePerson).append(" (").append(currentSubjectId).append(")\n");
+        sb.append("Claim:      ").append(claimPerson).append("\n");
+        sb.append("Genuine:    ").append(isGenuine ? "EVET" : "HAYIR").append("\n");
+        sb.append("Similarity: ").append(String.format(Locale.getDefault(), "%.4f", similarity)).append("\n");
+        sb.append("Embedding:  ").append(Arrays.toString(probeEmbedding)).append("\n\n");
+        appendToAuthLog(sb.toString());
+
+        logHrvMetrics(rrSnapshot);
+
+        return similarity;
     }
 
     public String getOrCreateSubjectId(String userName) {
