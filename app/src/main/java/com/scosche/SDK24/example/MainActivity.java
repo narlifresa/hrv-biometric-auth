@@ -9,6 +9,7 @@ import com.scosche.sdk24.example.R;
 import com.scosche.sdk24.*;
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
@@ -877,9 +878,11 @@ public class MainActivity extends AppCompatActivity implements RhythmSDKScanning
     }
 
     public int getNextSessionNumber(String subjectId) {
-        File dir = getFilesDir();
-        File[] files = dir.listFiles((d, name) -> name.startsWith(subjectId + "_session"));
-        currentSessionId = (files != null ? files.length : 0) + 1;
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        String key = "session_count_" + subjectId;
+        int count = prefs.getInt(key, 0) + 1;
+        prefs.edit().putInt(key, count).apply();
+        currentSessionId = count;
         Log.d("SUBJECT", subjectId + " session numarasi: " + currentSessionId);
         return currentSessionId;
     }

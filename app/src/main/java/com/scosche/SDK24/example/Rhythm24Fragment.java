@@ -182,8 +182,8 @@ public class Rhythm24Fragment extends Fragment {
                 return;
             }
             // Aktivite secim dialogu
-            String[] activities = {"Dinlenme (rest)", "Yürüyüş (walking)", "Egzersiz sonrasi (post_exercise)"};
-            String[] activityKeys = {"rest", "walking", "post_exercise"};
+            String[] activities = {"Dinlenme (rest)", "Yürüyüş (walking)", "Egzersiz sonrasi (post_exercise)", "Ayakta (standing)"};
+            String[] activityKeys = {"rest", "walking", "post_exercise", "standing"};
             new android.app.AlertDialog.Builder(getContext())
                     .setTitle("Aktivite turunu secin")
                     .setItems(activities, (dialog, which) -> {
