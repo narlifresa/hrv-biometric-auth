@@ -215,12 +215,12 @@ public class Rhythm24Fragment extends Fragment {
                 rrArray[i] = rrList.get(i);
             }
 
-            Log.d("TEMPLATE_DEBUG", "adim 3: HrvFeatureExtractor.extract cagriliyor");
-            float[] features = HrvFeatureExtractor.extract(rrArray);
-
-            Log.d("TEMPLATE_DEBUG", "adim 4: null kontrolu, features=" + (features == null ? "null" : "dolu"));
-            if (features == null) {
-                Toast.makeText(getContext(), "Yeterli RR verisi yok", Toast.LENGTH_SHORT).show();
+            Log.d("TEMPLATE_DEBUG", "adim 3: HrvFeatureExtractor.computeFeatures cagriliyor");
+            double[] features;
+            try {
+                features = HrvFeatureExtractor.computeFeatures(rrArray);
+            } catch (IllegalArgumentException e) {
+                Toast.makeText(getContext(), "Yeterli RR verisi yok: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -261,7 +261,7 @@ public class Rhythm24Fragment extends Fragment {
                         Log.d("RR_BUFFER", "Authentication yapildi, rrBuffer temizlendi.");
 
                         boolean isGenuine = claimPerson.equals(probePerson);
-                        boolean accepted = similarity >= 0.75f;
+                        boolean accepted = similarity >= HrvAuthEngine.AUTH_THRESHOLD;
                         String simStr = similarity >= 0 ? String.format(Locale.getDefault(), "%.4f", similarity) : "hata";
                         String resultText = (accepted ? "✓ Kabul" : "✗ Reddedildi")
                                 + " | " + probePerson + " → " + claimPerson
